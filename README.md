@@ -1,3 +1,5 @@
+[![Build](https://github.com/simoneferrari/ntfy-desktop/actions/workflows/build.yml/badge.svg)](https://github.com/simoneferrari/ntfy-desktop/actions/workflows/build.yml)
+
 # ntfy Desktop
 
 A Windows desktop client for [ntfy.sh](https://ntfy.sh) — subscribe to topics, receive Windows toast notifications, and browse your message history from the system tray.
