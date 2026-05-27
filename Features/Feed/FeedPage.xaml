@@ -154,7 +154,27 @@
                         <Border BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                                 BorderThickness="0,0,0,1"
                                 Padding="0,14,0,14"
-                                Margin="0,0,32,0">
+                                Margin="0,0,32,0"
+                                Background="Transparent">
+                            <!-- Background="Transparent" makes the whole row hit-test so the
+                                 MouseBinding fires even on empty space between elements. -->
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasClick}" Value="True">
+                                            <Setter Property="Cursor" Value="Hand" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Border.InputBindings>
+                                <!-- Clicks on the Delete / Open-link buttons don't bubble to
+                                     here (Button handles MouseLeftButtonDown internally), so
+                                     this only fires for clicks on the body of the row. -->
+                                <MouseBinding MouseAction="LeftClick"
+                                              Command="{Binding DataContext.OpenClickCommand, RelativeSource={RelativeSource AncestorType=Page}}"
+                                              CommandParameter="{Binding}" />
+                            </Border.InputBindings>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
@@ -213,6 +233,17 @@
                                                   FontTypography="Caption"
                                                   Text="{Binding Timestamp, Converter={StaticResource RelTime}}"
                                                   VerticalAlignment="Center" />
+                                    <!-- Open-link icon: only shown when the message has a
+                                         safe (http/https) click URL. Stops the row-level
+                                         MouseBinding from firing twice by being a Button. -->
+                                    <Button Style="{StaticResource MessageRowButton}"
+                                            Margin="8,0,0,0"
+                                            ToolTip="Open link"
+                                            Visibility="{Binding HasClick, Converter={StaticResource BoolToVis}}"
+                                            Command="{Binding DataContext.OpenClickCommand, RelativeSource={RelativeSource AncestorType=Page}}"
+                                            CommandParameter="{Binding}">
+                                        <ui:SymbolIcon Symbol="Open24" FontSize="14" />
+                                    </Button>
                                     <!-- Always visible so users discover it; muted at rest,
                                          brightens on hover via the button's own template. -->
                                     <Button Style="{StaticResource MessageRowButton}"

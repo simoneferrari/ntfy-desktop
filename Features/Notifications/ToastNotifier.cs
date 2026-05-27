@@ -50,7 +50,7 @@ public class ToastNotifier
 
             var body = message.Message ?? string.Empty;
 
-            var xml = BuildToastXml(title, body, message.Topic, message.Priority);
+            var xml = BuildToastXml(title, body, message.Topic, message.Priority, message.Click);
             var toast = new ToastNotification(xml)
             {
                 // Group toasts by topic; tag by message id so duplicates replace rather than stack
@@ -63,10 +63,17 @@ public class ToastNotifier
         catch { /* toast delivery failure is non-fatal */ }
     }
 
-    private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority)
+    private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority, string? clickUrl)
     {
         // Urgent: persistent toast + alarm sound until dismissed
-        var toastAttrs = priority == Priority.Urgent ? @" scenario=""urgent""" : string.Empty;
+        var scenarioAttr = priority == Priority.Urgent ? @" scenario=""urgent""" : string.Empty;
+
+        // Click activation: when the publisher set a safe http(s) click URL, the toast
+        // launches it via the OS default protocol handler (browser). Other schemes are
+        // refused by SafeUrl — see Domain/SafeUrl.cs for the allow-list.
+        var clickAttrs = SafeUrl.IsAllowed(clickUrl)
+            ? $@" activationType=""protocol"" launch=""{EscapeXml(clickUrl!)}"""
+            : string.Empty;
 
         var audioElement = priority switch
         {
@@ -79,7 +86,7 @@ public class ToastNotifier
 
         var doc = new XmlDocument();
         doc.LoadXml($"""
-            <toast{toastAttrs}>
+            <toast{scenarioAttr}{clickAttrs}>
               <visual>
                 <binding template="ToastGeneric">
                   <text>{EscapeXml(title)}</text>

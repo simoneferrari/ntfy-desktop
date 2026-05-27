@@ -17,6 +17,9 @@ public class HistoryMessage
 
     public string? Click { get; set; }
 
+    /// <summary>True when Click is a non-empty http(s) URL the app will follow.</summary>
+    public bool HasClick => SafeUrl.IsAllowed(Click);
+
     private (string Emojis, IReadOnlyList<string> Labels)? _tagDisplay;
     private (string Emojis, IReadOnlyList<string> Labels) TagDisplay =>
         _tagDisplay ??= EmojiTags.Format(

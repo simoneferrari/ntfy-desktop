@@ -162,4 +162,9 @@ public sealed partial class FeedViewModel : ObservableObject
         Messages.Remove(message);
         IsEmpty = Messages.Count == 0;
     }
+
+    // Bound to row-level MouseBinding and to the open-link icon button.
+    // SafeUrl.Open silently no-ops if the URL is missing or fails the allow-list.
+    [RelayCommand]
+    private void OpenClick(HistoryMessage? message) => Domain.SafeUrl.Open(message?.Click);
 }
