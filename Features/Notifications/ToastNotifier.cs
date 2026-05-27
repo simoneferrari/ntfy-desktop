@@ -39,9 +39,14 @@ public class ToastNotifier
 
         try
         {
-            var title = string.IsNullOrWhiteSpace(message.Title)
+            var baseTitle = string.IsNullOrWhiteSpace(message.Title)
                 ? message.Topic
                 : message.Title;
+
+            // Prepend any tag-derived emoji glyphs to the title (matches ntfy's web client).
+            // Unmapped tags don't appear here — they're shown as small labels in the feed.
+            var emojis = EmojiTags.Format(message.Tags).Emojis;
+            var title = string.IsNullOrEmpty(emojis) ? baseTitle : $"{emojis} {baseTitle}";
 
             var body = message.Message ?? string.Empty;
 

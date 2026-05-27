@@ -59,6 +59,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Domain\Emojis\emoji.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Shared\Settings\" />
   </ItemGroup>
 

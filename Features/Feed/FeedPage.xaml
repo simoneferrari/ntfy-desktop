@@ -175,6 +175,28 @@
                                                           FontTypography="Caption"
                                                           Text="{Binding Topic}" />
                                         </Border>
+                                        <!-- Unrecognized tag labels rendered as compact chips next to the topic.
+                                             Recognized tags (e.g. "warning") become emojis prepended to the
+                                             title — see HistoryMessage.DisplayTitle. -->
+                                        <ItemsControl ItemsSource="{Binding TagLabels}" Margin="6,0,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                                                            CornerRadius="3"
+                                                            Padding="6,1"
+                                                            Margin="0,0,4,0">
+                                                        <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                      FontTypography="Caption"
+                                                                      Text="{Binding}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
                                     </StackPanel>
                                     <ui:TextBlock FontTypography="BodyStrong"
                                                   Text="{Binding DisplayTitle}"

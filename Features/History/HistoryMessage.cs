@@ -11,8 +11,30 @@ public class HistoryMessage
     public Priority Priority { get; set; } = Priority.Default;
     public string? Title { get; set; }
     public string? Body { get; set; }
+
+    /// <summary>Comma-joined tag list as stored in SQLite.</summary>
     public string? Tags { get; set; }
+
     public string? Click { get; set; }
 
-    public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? Topic : Title;
+    private (string Emojis, IReadOnlyList<string> Labels)? _tagDisplay;
+    private (string Emojis, IReadOnlyList<string> Labels) TagDisplay =>
+        _tagDisplay ??= EmojiTags.Format(
+            string.IsNullOrEmpty(Tags) ? null : Tags.Split(',', StringSplitOptions.RemoveEmptyEntries));
+
+    /// <summary>Concatenated emoji glyphs for any recognized tags.</summary>
+    public string TagEmojis => TagDisplay.Emojis;
+
+    /// <summary>Unrecognized tags, rendered as plain-text chips next to the topic.</summary>
+    public IReadOnlyList<string> TagLabels => TagDisplay.Labels;
+
+    /// <summary>Title with any tag emojis prepended (matches the toast).</summary>
+    public string DisplayTitle
+    {
+        get
+        {
+            var baseTitle = string.IsNullOrWhiteSpace(Title) ? Topic : Title;
+            return string.IsNullOrEmpty(TagEmojis) ? baseTitle : $"{TagEmojis} {baseTitle}";
+        }
+    }
 }
