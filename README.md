@@ -6,6 +6,15 @@ A Windows desktop client for [ntfy.sh](https://ntfy.sh) — subscribe to topics,
 
 > **Status:** early pre-release (v0.x). Functional and in daily use, but the API surface and data formats may still change.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Message feed](screenshots/topic-feed.png) | ![Topic menu](screenshots/topic-context-menu.png) |
+| *Message feed* | *Per-topic actions* |
+| ![Connections](screenshots/connections.png) | ![Settings](screenshots/settings.png) |
+| *Connections page* | *Settings page* |
+
 ## Features
 
 - 🔔 **Windows toast notifications** for every incoming message
