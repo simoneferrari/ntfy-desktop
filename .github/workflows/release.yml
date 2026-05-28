@@ -42,17 +42,30 @@ jobs:
         run: |
           $file = "publish/NtfyDesktop.exe"
           $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
-          $headers = @{ "x-apikey" = $env:VT_API_KEY }
+
+          # Get a large-file upload URL (the direct /files endpoint caps at 32 MB;
+          # the self-contained exe is larger).
           try {
-            # The upload-URL flow works for files of any size (the direct endpoint
-            # caps at 32 MB; the self-contained exe is larger).
-            $uploadUrl = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" -Headers $headers).data
-            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -Form @{ file = Get-Item $file } | Out-Null
+            $uploadUrl = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" `
+                          -Headers @{ "x-apikey" = $env:VT_API_KEY }).data
+          } catch {
+            Write-Warning "Could not get VirusTotal upload URL: $($_.Exception.Message)"
+            exit 0   # never fail the release on a scanning hiccup
+          }
+
+          # Upload via curl — its multipart handling is more reliable than
+          # Invoke-RestMethod -Form for this endpoint. Capture status + body.
+          $status = curl.exe -s -o vt-response.json -w "%{http_code}" `
+                      -X POST "$uploadUrl" `
+                      -H "x-apikey: $env:VT_API_KEY" `
+                      -F "file=@$file"
+
+          if ($status -eq "200") {
             "url=https://www.virustotal.com/gui/file/$sha" >> $env:GITHUB_OUTPUT
             Write-Host "Submitted to VirusTotal (sha256 $sha)."
-          } catch {
-            # Never fail the release on a scanning hiccup (rate limit, outage, etc.).
-            Write-Warning "VirusTotal submission failed: $($_.Exception.Message)"
+          } else {
+            Write-Warning "VirusTotal upload returned HTTP $status"
+            if (Test-Path vt-response.json) { Get-Content vt-response.json | Write-Host }
           }
 
       - name: Upload release
