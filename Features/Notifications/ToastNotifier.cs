@@ -3,6 +3,7 @@ using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
 using Microsoft.Win32;
 using NtfyDesktop.Domain;
+using NtfyDesktop.Features.Shell;
 
 namespace NtfyDesktop.Features.Notifications;
 
@@ -50,7 +51,7 @@ public class ToastNotifier
 
             var body = message.Message ?? string.Empty;
 
-            var xml = BuildToastXml(title, body, message.Topic, message.Priority, message.Click);
+            var xml = BuildToastXml(title, body, message.Topic, message.Priority, message.Click, message.Id);
             var toast = new ToastNotification(xml)
             {
                 // Group toasts by topic; tag by message id so duplicates replace rather than stack
@@ -63,17 +64,20 @@ public class ToastNotifier
         catch { /* toast delivery failure is non-fatal */ }
     }
 
-    private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority, string? clickUrl)
+    private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority, string? clickUrl, string messageId)
     {
         // Urgent: persistent toast + alarm sound until dismissed
         var scenarioAttr = priority == Priority.Urgent ? @" scenario=""urgent""" : string.Empty;
 
-        // Click activation: when the publisher set a safe http(s) click URL, the toast
-        // launches it via the OS default protocol handler (browser). Other schemes are
-        // refused by SafeUrl — see Domain/SafeUrl.cs for the allow-list.
-        var clickAttrs = SafeUrl.IsAllowed(clickUrl)
-            ? $@" activationType=""protocol"" launch=""{EscapeXml(clickUrl!)}"""
-            : string.Empty;
+        // Click activation:
+        //   - Publisher-set http(s) URL → browser opens it
+        //   - Otherwise → fall back to ntfy-desktop://show?topic=...&msg=... which
+        //     brings our app to the foreground at the relevant topic feed
+        // Other schemes from the publisher are refused (see Domain/SafeUrl.cs).
+        var launchUrl = SafeUrl.IsAllowed(clickUrl)
+            ? clickUrl!
+            : BuildAppActivationUrl(topic, messageId);
+        var clickAttrs = $@" activationType=""protocol"" launch=""{EscapeXml(launchUrl)}""";
 
         var audioElement = priority switch
         {
@@ -112,6 +116,9 @@ public class ToastNotifier
     // Toast Tag is limited to 64 chars
     private static string TruncateTag(string id) =>
         string.IsNullOrEmpty(id) ? string.Empty : (id.Length <= 64 ? id : id[..64]);
+
+    private static string BuildAppActivationUrl(string topic, string messageId) =>
+        $"{ProtocolRegistration.SCHEME}://show?topic={Uri.EscapeDataString(topic)}&msg={Uri.EscapeDataString(messageId)}";
 
     private static string EscapeXml(string value) =>
         value

@@ -22,18 +22,26 @@ public partial class App : Application
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "NtfyDesktop");
 
-    // Stable per-profile mutex so two instances with different --data-path values
-    // can run side-by-side, while still preventing duplicate instances of the same profile.
-    private static string SingleInstanceMutexName()
+    // Stable per-profile hash of the data folder. Drives both the single-instance
+    // mutex and the activation named-pipe so different --data-path profiles run
+    // fully independently.
+    private static string DataPathHash()
     {
         var normalized = Path.GetFullPath(DataPath).ToUpperInvariant();
         var hash = normalized.Aggregate(2166136261u, (current, c) => (current ^ (byte) c) * 16777619u); // FNV-1a 32-bit
-        return $"NtfyDesktop_{hash:X8}_SingleInstance";
+        return hash.ToString("X8");
     }
+
+    private static string SingleInstanceMutexName() => $"NtfyDesktop_{DataPathHash()}_SingleInstance";
+    private static string ActivationPipeName()      => $"NtfyDesktop_{DataPathHash()}_Activation";
 
     private IHost? _host;
     private Mutex? _mutex;
     private TrayIconHost? _trayIcon;
+    private SingleInstanceServer? _activationServer;
+
+    // Stash a cold-start activation URL until the host is ready to handle it.
+    private string? _pendingActivationUrl;
 
     public static IServiceProvider Services =>
         ((App)Current)._host?.Services
@@ -51,9 +59,12 @@ public partial class App : Application
             { DataPath = Path.GetFullPath(e.Args[i + 1]); break; }
 
             if (!e.Args[i].StartsWith("--data-path=", StringComparison.Ordinal)) continue;
-            
+
             DataPath = Path.GetFullPath(e.Args[i]["--data-path=".Length..]); break;
         }
+
+        // Pull any ntfy-desktop:// URL out of the args (toast click activation).
+        var activationUrl = ExtractActivationUrl(e.Args);
 
         // Surface anything fatal during startup instead of silently dying.
         DispatcherUnhandledException += (_, args) =>
@@ -70,9 +81,29 @@ public partial class App : Application
         _mutex = new Mutex(true, SingleInstanceMutexName(), out var isFirstInstance);
         if (!isFirstInstance)
         {
+            // Another instance is already running for this data folder. Forward the
+            // activation URL (if any) to it so it can bring the right feed forward,
+            // then exit. If forwarding fails the running instance just won't react —
+            // we still don't want two instances side-by-side.
+            if (!string.IsNullOrEmpty(activationUrl))
+                SingleInstanceServer.TryForward(ActivationPipeName(), activationUrl);
             Shutdown(0);
             return;
         }
+
+        // We're the first/only instance. Spin up the pipe listener so future
+        // launches (e.g. another toast click) can forward their URLs to us.
+        _activationServer = new SingleInstanceServer(ActivationPipeName());
+        _activationServer.ActivationReceived += OnActivationReceived;
+        _activationServer.Start();
+
+        // Register the ntfy-desktop:// scheme so Windows knows how to dispatch
+        // toast clicks back to this exe. Safe to re-apply on every launch.
+        ProtocolRegistration.Apply();
+
+        // Stash cold-start activation; routed below once the host is built and the
+        // main window is reachable.
+        _pendingActivationUrl = activationUrl;
 
         var builder = Host.CreateApplicationBuilder(e.Args);
 
@@ -103,7 +134,61 @@ public partial class App : Application
             Dispatcher.Invoke(() => _trayIcon?.SetConnectionStatus(conn.GetConnectionStatus()));
         gate.GlobalStatusChanged += (_, _) =>
             Dispatcher.Invoke(() => _trayIcon?.SetNotificationStatus(gate.GlobalStatus));
+
+        // Cold-start activation: if launched directly by a toast click (no prior
+        // instance), now that the host is up we can dispatch the URL.
+        if (string.IsNullOrEmpty(_pendingActivationUrl)) return;
+        var url = _pendingActivationUrl;
+        _pendingActivationUrl = null;
+        DispatchActivation(url);
     }
+
+    private void OnActivationReceived(object? sender, string url) =>
+        Dispatcher.Invoke(() => DispatchActivation(url));
+
+    private void DispatchActivation(string url)
+    {
+        if (!TryParseShowActivation(url, out var topic)) return;
+
+        ShowMainWindow();
+
+        var window = _host!.Services.GetRequiredService<MainWindow>();
+        window.NavigateToTopic(topic);
+    }
+
+    // ntfy-desktop://show?topic=<topic>&msg=<id>
+    // msg is intentionally ignored for now — we open the topic feed; scroll-to-message
+    // is a future enhancement.
+    private static bool TryParseShowActivation(string url, out string topic)
+    {
+        topic = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, ProtocolRegistration.SCHEME, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!string.Equals(uri.Host, "show", StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Minimal query parsing — no System.Web dependency. Format: ?topic=foo&msg=bar
+        var q = uri.Query;
+        if (string.IsNullOrEmpty(q)) return false;
+        if (q.StartsWith('?')) q = q[1..];
+
+        foreach (var pair in q.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq < 0) continue;
+            var key = Uri.UnescapeDataString(pair[..eq]);
+            var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
+            if (string.Equals(key, "topic", StringComparison.OrdinalIgnoreCase))
+                topic = value;
+        }
+
+        return !string.IsNullOrEmpty(topic);
+    }
+
+    private static string? ExtractActivationUrl(string[] args) =>
+        args.FirstOrDefault(a =>
+            a.StartsWith(ProtocolRegistration.SCHEME + "://", StringComparison.OrdinalIgnoreCase));
 
     public void ShowMainWindow()
     {
@@ -146,6 +231,7 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
+        _activationServer?.Dispose();
         _trayIcon?.Dispose();
 
         if (_host != null)

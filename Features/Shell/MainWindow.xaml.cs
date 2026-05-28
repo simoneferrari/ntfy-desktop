@@ -429,6 +429,26 @@ public partial class MainWindow : FluentWindow
         return menu;
     }
 
+    /// <summary>
+    /// Navigates to the feed for a specific topic. Called from App.HandleActivation
+    /// after a toast click forwards us a ntfy-desktop:// URL. If the topic is no
+    /// longer subscribed (user removed it), falls back to "All topics".
+    /// </summary>
+    public void NavigateToTopic(string? topicName)
+    {
+        RootNavigation.Navigate(typeof(FeedPage));
+
+        // The rail's visual selection lands on AllTopicsItem (the first item with
+        // TargetPageType=FeedPage). Setting the VM's CurrentTopic afterwards drives
+        // the feed content to the requested topic. The rail won't visually highlight
+        // the per-topic item — WPF-UI's NavigationView.SelectedItem setter isn't
+        // public so we can't fix that without poking template internals.
+        _feedVm.CurrentTopic =
+            !string.IsNullOrEmpty(topicName) && _railItems.ContainsKey(topicName)
+                ? topicName
+                : null;
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
         e.Cancel = true;
