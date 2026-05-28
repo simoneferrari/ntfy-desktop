@@ -1,27 +1,25 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using H.NotifyIcon;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.Notifications;
 
 namespace NtfyDesktop.Features.Shell;
 
-// Owns the system-tray icon. The "N" glyph is regenerated whenever the
-// connection status changes so the user can see health at a glance without
-// opening the window. Pause is independent: it doesn't affect the icon colour
-// (sockets aren't unhealthy when paused). It does flip the menu item label
-// and is reflected in the tooltip.
+// Owns the system-tray icon: the app's bell glyph on a background coloured by
+// connection status (green / amber / red), so health reads at a glance without
+// opening the window. Pause is independent — it doesn't change the icon (sockets
+// aren't unhealthy when paused); it only flips the menu item label and tooltip.
 internal sealed class TrayIconHost : IDisposable
 {
-    // Same palette as the title-bar pip so the two surfaces agree.
-    private static readonly Brush ConnectedBrush    = new SolidColorBrush(Color.FromRgb(0x16, 0xA3, 0x4A)); // green
-    private static readonly Brush DegradedBrush     = new SolidColorBrush(Color.FromRgb(0xEA, 0x58, 0x0C)); // orange
-    private static readonly Brush DisconnectedBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26)); // red
-
     private readonly TaskbarIcon _icon;
     private readonly MenuItem _pauseItem;
+
+    // The icon currently handed to the tray. H.NotifyIcon disposes the icon it's
+    // given when a new one replaces it, so we hand it a *fresh* icon each render
+    // and dispose the previous one ourselves — never reuse an instance.
+    private System.Drawing.Icon? _activeIcon;
 
     private ConnectionStatus _lastConnection = ConnectionStatus.Disconnected;
     private NotificationStatus _lastNotifications = NotificationStatus.Active;
@@ -60,24 +58,20 @@ internal sealed class TrayIconHost : IDisposable
 
     private void Render()
     {
-        var (brush, connectionWord) = _lastConnection switch
+        var (file, connectionWord) = _lastConnection switch
         {
-            ConnectionStatus.Connected    => (ConnectedBrush,    "connected"),
-            ConnectionStatus.Degraded     => (DegradedBrush,     "reconnecting"),
-            ConnectionStatus.Disconnected => (DisconnectedBrush, "disconnected"),
-            _                             => (DisconnectedBrush, "—"),
+            ConnectionStatus.Connected    => ("tray-connected.ico",    "connected"),
+            ConnectionStatus.Degraded     => ("tray-degraded.ico",     "reconnecting"),
+            ConnectionStatus.Disconnected => ("tray-disconnected.ico", "disconnected"),
+            _                             => ("tray-disconnected.ico", "—"),
         };
 
-        var generated = new GeneratedIconSource
-        {
-            Text = "N",
-            Foreground = Brushes.White,
-            Background = brush,
-            FontFamily = new FontFamily("Segoe UI"),
-            FontWeight = FontWeights.Bold,
-        };
+        // Fresh icon each time; dispose the one we previously handed off.
+        var fresh = LoadIcon(file);
+        _icon.Icon = fresh;
+        _activeIcon?.Dispose();
+        _activeIcon = fresh;
 
-        _icon.Icon = generated.ToIcon();
         _icon.ToolTipText = _lastNotifications == NotificationStatus.Paused
             ? $"{App.NAME} — {connectionWord}, notifications paused"
             : $"{App.NAME} — {connectionWord}";
@@ -85,6 +79,14 @@ internal sealed class TrayIconHost : IDisposable
         _pauseItem.Header = _lastNotifications == NotificationStatus.Paused
             ? "Resume notifications"
             : "Pause notifications";
+    }
+
+    private static System.Drawing.Icon LoadIcon(string fileName)
+    {
+        var uri = new Uri($"pack://application:,,,/assets/{fileName}", UriKind.Absolute);
+        using var stream = Application.GetResourceStream(uri)!.Stream;
+        // Pick the 32px frame — crisp at the DPI scales the tray typically uses.
+        return new System.Drawing.Icon(stream, new System.Drawing.Size(32, 32));
     }
 
     private static ContextMenu BuildContextMenu(App app, MenuItem pauseItem) =>
@@ -103,7 +105,11 @@ internal sealed class TrayIconHost : IDisposable
             },
         };
 
-    public void Dispose() => _icon.Dispose();
+    public void Dispose()
+    {
+        _icon.Dispose();
+        _activeIcon?.Dispose();
+    }
 
     private sealed class RelayCommand(Action execute) : ICommand
     {

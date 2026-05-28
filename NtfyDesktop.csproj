@@ -10,6 +10,7 @@
     <AssemblyName>NtfyDesktop</AssemblyName>
     <RootNamespace>NtfyDesktop</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
     <!-- Package metadata -->
     <Version>0.2.0</Version>
@@ -60,6 +61,15 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Domain\Emojis\emoji.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WPF Resources referenced via pack URI: app.ico for the window/titlebar,
+         tray-*.ico for the per-state system-tray icon. -->
+    <Resource Include="assets\app.ico" />
+    <Resource Include="assets\tray-connected.ico" />
+    <Resource Include="assets\tray-degraded.ico" />
+    <Resource Include="assets\tray-disconnected.ico" />
   </ItemGroup>
 
   <ItemGroup>

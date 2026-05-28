@@ -7,6 +7,7 @@
                  xmlns:views="clr-namespace:NtfyDesktop.Features.Settings"
                  xmlns:converters="clr-namespace:NtfyDesktop.Features.Shell.Converters"
                  Title="ntfy Desktop"
+                 Icon="pack://application:,,,/assets/app.ico"
                  Width="1000"
                  Height="660"
                  MinWidth="760"
@@ -66,6 +67,9 @@
         </Grid.RowDefinitions>
 
         <ui:TitleBar Grid.Row="0" Title="ntfy Desktop">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/assets/app.ico" Width="16" Height="16" />
+            </ui:TitleBar.Icon>
             <ui:TitleBar.Header>
                 <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
                     <!-- Connection pip + label: pure connection health. -->
