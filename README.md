@@ -46,10 +46,11 @@ Planned (in rough order). Open an issue if you'd like to discuss priorities or p
 - [x] Open the app feed when a toast is clicked
 - [x] Render ntfy tags as emojis (e.g. `warning` → ⚠️)
 
-**0.3 — Multiple servers**
-- [ ] Subscribe to topics across more than one ntfy server (e.g. self-hosted + `ntfy.sh`)
-- [ ] Per-topic server selection
-- [ ] Server management UI
+**0.3 — Multiple servers** ✅ *(shipped in v0.3)*
+- [x] Subscribe to topics across more than one ntfy server (e.g. self-hosted + `ntfy.sh`)
+- [x] Per-topic server selection
+- [x] Server management UI
+- [x] Per-topic display names (friendly labels)
 
 **0.4 — Richer messages**
 - [ ] Action buttons (`view` / `http` / `broadcast`)
