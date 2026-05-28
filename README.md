@@ -18,10 +18,12 @@ A Windows desktop client for [ntfy.sh](https://ntfy.sh) — subscribe to topics,
 
 | | |
 |---|---|
-| ![Message feed](screenshots/topic-feed.png) | ![Topic menu](screenshots/topic-context-menu.png) |
-| *Message feed* | *Per-topic actions* |
-| ![Connections](screenshots/connections.png) | ![Settings](screenshots/settings.png) |
-| *Connections page* | *Settings page* |
+| ![All topics](screenshots/all-topics-feed.png) | ![Servers and grouped sidebar](screenshots/settings-and-sidebar-with-multiple-servers.png) |
+| *All topics — messages from every server* | *Multiple servers, grouped sidebar* |
+| ![Single topic](screenshots/topic-feed.png) | ![Connections](screenshots/connections.png) |
+| *Single-topic feed* | *Connections page* |
+| ![Per-topic actions](screenshots/topic-context-menu.png) | |
+| *Per-topic actions* | |
 
 ## Features
 

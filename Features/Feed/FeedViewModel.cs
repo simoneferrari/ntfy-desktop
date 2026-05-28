@@ -119,12 +119,16 @@ public sealed partial class FeedViewModel : ObservableObject
         var minP = MinPriority;
         var search = SearchText;
 
+        var allTopics = topicId is null;
+
         var loaded = await Task.Run(() =>
         {
             var raw = _history.Query(topicId: topicId, minPriority: minP, limit: MaxDisplayed);
-            return string.IsNullOrWhiteSpace(search)
+            var list = string.IsNullOrWhiteSpace(search)
                 ? raw
                 : raw.Where(m => Matches(m, search)).ToList();
+            foreach (var m in list) Enrich(m, allTopics);
+            return list;
         });
 
         await Application.Current.Dispatcher.InvokeAsync(() =>
@@ -142,6 +146,8 @@ public sealed partial class FeedViewModel : ObservableObject
         if (m.Priority < MinPriority) return;
         if (!string.IsNullOrWhiteSpace(SearchText) && !Matches(m, SearchText)) return;
 
+        Enrich(m, allTopics: CurrentTopicId is null);
+
         Application.Current?.Dispatcher.Invoke((Action) (() =>
         {
             Messages.Insert(0, m);
@@ -149,6 +155,20 @@ public sealed partial class FeedViewModel : ObservableObject
                 Messages.RemoveAt(Messages.Count - 1);
             IsEmpty = false;
         }));
+    }
+
+    // Populates the message's display-only fields (friendly topic label + server)
+    // from current settings. ServerName is only set when showServer is true.
+    private void Enrich(HistoryMessage m, bool allTopics)
+    {
+        var topic = _settings.GetTopicById(m.TopicId);
+        m.TopicLabel = topic?.EffectiveDisplayName ?? m.Topic;
+        // Topic + server chips only on the combined All-topics view; the server
+        // chip additionally needs more than one server to be meaningful.
+        m.ShowTopic = allTopics;
+        m.ServerName = allTopics && _settings.Servers.Count > 1 && topic is not null
+            ? _settings.GetServer(topic.ServerId)?.DisplayLabel
+            : null;
     }
 
     private static bool Matches(HistoryMessage m, string q) =>

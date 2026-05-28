@@ -190,10 +190,27 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                         <Border Background="{DynamicResource SubtleFillColorSecondaryBrush}"
                                                 CornerRadius="3"
-                                                Padding="6,1">
+                                                Padding="6,1"
+                                                Visibility="{Binding ShowTopic, Converter={StaticResource BoolToVis}}">
                                             <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                           FontTypography="Caption"
-                                                          Text="{Binding Topic}" />
+                                                          Text="{Binding DisplayTopic}" />
+                                        </Border>
+                                        <!-- Server chip: only on the All-topics view with more than one
+                                             server (HistoryMessage.ServerName is set accordingly). -->
+                                        <Border Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                                                CornerRadius="3"
+                                                Padding="6,1"
+                                                Margin="6,0,0,0"
+                                                Visibility="{Binding HasServer, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <ui:SymbolIcon Symbol="Server24" FontSize="11" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                <ui:TextBlock Margin="4,0,0,0"
+                                                              Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                                              FontTypography="Caption"
+                                                              Text="{Binding ServerName}" />
+                                            </StackPanel>
                                         </Border>
                                         <!-- Unrecognized tag labels rendered as compact chips next to the topic.
                                              Recognized tags (e.g. "warning") become emojis prepended to the
