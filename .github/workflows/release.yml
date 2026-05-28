@@ -10,6 +10,11 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      # Optional: set a VirusTotal API key as the VT_API_KEY repo secret to have
+      # each release's exe submitted to VirusTotal and a scan link added to the notes.
+      # If the secret is absent, the scan step is skipped and the release still ships.
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -30,8 +35,29 @@ jobs:
           -p:EnableCompressionInSingleFile=true
           -o publish/
 
+      - name: Scan with VirusTotal
+        id: vt
+        if: env.VT_API_KEY != ''
+        shell: pwsh
+        run: |
+          $file = "publish/NtfyDesktop.exe"
+          $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+          $headers = @{ "x-apikey" = $env:VT_API_KEY }
+          try {
+            # The upload-URL flow works for files of any size (the direct endpoint
+            # caps at 32 MB; the self-contained exe is larger).
+            $uploadUrl = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" -Headers $headers).data
+            Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $headers -Form @{ file = Get-Item $file } | Out-Null
+            "url=https://www.virustotal.com/gui/file/$sha" >> $env:GITHUB_OUTPUT
+            Write-Host "Submitted to VirusTotal (sha256 $sha)."
+          } catch {
+            # Never fail the release on a scanning hiccup (rate limit, outage, etc.).
+            Write-Warning "VirusTotal submission failed: $($_.Exception.Message)"
+          }
+
       - name: Upload release
         uses: softprops/action-gh-release@v2
         with:
           files: publish/NtfyDesktop.exe
           generate_release_notes: true
+          body: ${{ steps.vt.outputs.url && format('**VirusTotal scan:** {0}', steps.vt.outputs.url) || '' }}
