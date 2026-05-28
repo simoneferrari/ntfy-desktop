@@ -10,5 +10,6 @@ public sealed record TopicConnectionState(
     Guid TopicId,
     string TopicName,
     string DisplayName,
+    string ServerName,
     TopicConnectionStatus Status,
     string? LastError);

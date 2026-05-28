@@ -58,6 +58,7 @@ public sealed class ConnectionManager : IAsyncDisposable
                     topic.Id,
                     topic.Name,
                     topic.EffectiveDisplayName,
+                    _settings.GetServer(topic.ServerId)?.DisplayLabel ?? string.Empty,
                     conn?.Status ?? TopicConnectionStatus.Disconnected,
                     conn?.LastError);
             })
@@ -102,6 +103,25 @@ public sealed class ConnectionManager : IAsyncDisposable
     {
         if (_connections.TryGetValue(topicId, out var conn))
             conn.ForceReconnect();
+    }
+
+    // Tears down and re-applies a single topic's connection. Use after an edit that
+    // changes its subscription identity (topic name or server), so the connection
+    // re-resolves instead of keeping the stale server/name it captured.
+    public async Task RebuildTopicAsync(Guid topicId)
+    {
+        await RemoveConnectionAsync(topicId);
+        await ApplySettingsAsync();
+    }
+
+    // Tears down and re-applies connections for every topic on a server. Use after
+    // a server's URL or token changed, without disturbing other servers' sockets.
+    public async Task RebuildServerAsync(Guid serverId)
+    {
+        var ids = _settings.Topics.Where(t => t.ServerId == serverId).Select(t => t.Id).ToList();
+        foreach (var id in ids)
+            await RemoveConnectionAsync(id);
+        await ApplySettingsAsync();
     }
 
     public void ReconnectAll()

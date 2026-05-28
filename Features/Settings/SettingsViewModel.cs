@@ -1,107 +1,156 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Features.History;
 
 namespace NtfyDesktop.Features.Settings;
 
-// Backs the Settings page. Holds a working copy of AppSettings; on Save commits
-// to disk and reapplies connections *only* when ServerUrl or AccessToken changed.
-// Tracks IsDirty by comparing the live VM state to a snapshot captured on Load,
-// so manually reverting an edit clears the dirty flag.
+// Backs the Settings page. Server management is immediate-persist (via the server
+// editor dialog, like topics); the page's Save/Discard snapshot covers the simple
+// preference rows (defaults, system, active hours, rail display).
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly AppSettings _settings;
     private readonly ConnectionManager _connections;
+    private readonly HistoryRepository _history;
 
-    // Suppress IsDirty tracking while Load() is repopulating from AppSettings.
     private bool _loading;
-
-    // Snapshot of all editable values at last Load(). IsDirty := current != snapshot.
     private FormSnapshot _snapshot = FormSnapshot.Empty;
 
-    // Properties whose PropertyChanged event shouldn't trigger a dirty recompute:
-    // either IsDirty itself, or computed/derived properties driven by [NotifyPropertyChangedFor].
     private static readonly HashSet<string> _nonDirtyProperties =
     [
-        nameof(SettingsViewModel.IsDirty),
-        nameof(ServerUrlError),
-        nameof(HasServerUrlError),
-        nameof(HasInsecureTokenWarning),
-        nameof(HasStoredAccessToken),
+        nameof(IsDirty),
         nameof(CanSave),
+        nameof(DefaultServerId),
     ];
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ServerUrlError))]
-    [NotifyPropertyChangedFor(nameof(HasServerUrlError))]
-    [NotifyPropertyChangedFor(nameof(HasInsecureTokenWarning))]
-    [NotifyPropertyChangedFor(nameof(CanSave))]
-    [NotifyCanExecuteChangedFor(nameof(SettingsViewModel.SaveCommand))]
-    private string _serverUrl = "https://ntfy.sh";
+    // ===== Servers (immediate-persist) =====
+    public ObservableCollection<ServerRowVm> Servers { get; } = new();
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasInsecureTokenWarning))]
-    private string _accessToken = string.Empty;
+    [ObservableProperty] private Guid _defaultServerId;
 
+    // ===== Snapshot-tracked preferences =====
     [ObservableProperty] private Priority _globalMinPriority = Priority.Min;
     [ObservableProperty] private int _historyRetentionDays = 30;
     [ObservableProperty] private bool _startWithWindows;
     [ObservableProperty] private bool _activeHoursEnabled;
     [ObservableProperty] private string _activeHoursStartText = "09:00";
     [ObservableProperty] private string _activeHoursEndText   = "18:00";
+    [ObservableProperty] private RailServerDisplay _railServerDisplay = RailServerDisplay.Grouped;
 
     [ObservableProperty] private bool _isDirty;
 
-    public SettingsViewModel(AppSettings settings, ConnectionManager connections)
+    // Raised after Save when the rail display mode changed, so the shell can rebuild
+    // the nav rail.
+    public event EventHandler? RailServerDisplayChangedOnSave;
+
+    public SettingsViewModel(AppSettings settings, ConnectionManager connections, HistoryRepository history)
     {
         _settings = settings;
         _connections = connections;
+        _history = history;
         Load();
     }
 
     public void Load()
     {
         _loading = true;
-        ServerUrl            = _settings.DefaultServer.Url;
-        AccessToken          = _settings.DefaultServer.GetAccessToken();
         GlobalMinPriority    = _settings.GlobalMinPriority;
         HistoryRetentionDays = _settings.HistoryRetentionDays;
         StartWithWindows     = StartupManager.IsEnabled();
         ActiveHoursEnabled   = _settings.ActiveHoursEnabled;
         ActiveHoursStartText = _settings.ActiveHoursStart.ToString("HH:mm");
         ActiveHoursEndText   = _settings.ActiveHoursEnd.ToString("HH:mm");
+        RailServerDisplay    = _settings.RailServerDisplay;
+
+        ReloadServers();
 
         _snapshot = TakeSnapshot();
         _loading = false;
         IsDirty = false;
     }
 
-    /// <summary>True if the settings file currently has a saved (encrypted) token.</summary>
-    public bool HasStoredAccessToken => !string.IsNullOrEmpty(_settings.DefaultServer.EncryptedAccessToken);
-
-    /// <summary>Null if ServerUrl is valid; an error message otherwise.</summary>
-    public string? ServerUrlError
+    public void ReloadServers()
     {
-        get
-        {
-            var s = ServerUrl?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(s))                          return "Server URL is required.";
-            if (!Uri.TryCreate(s, UriKind.Absolute, out var uri))      return "Not a valid URL.";
-            if (uri.Scheme != "http" && uri.Scheme != "https")         return "URL must use http or https.";
-            return null;
-        }
+        DefaultServerId = _settings.DefaultServerId;
+        Servers.Clear();
+        foreach (var s in _settings.Servers)
+            Servers.Add(new ServerRowVm(s, s.Id == _settings.DefaultServerId));
     }
 
-    public bool HasServerUrlError => ServerUrlError is not null;
-    public bool CanSave            => !HasServerUrlError;
+    public int TopicCountForServer(Guid serverId) =>
+        _settings.Topics.Count(t => t.ServerId == serverId);
 
-    /// <summary>The URL is plain http and a token is set: TopicConnection will NOT
-    /// send the bearer header over cleartext, so warn the user.</summary>
-    public bool HasInsecureTokenWarning =>
-        !string.IsNullOrEmpty(AccessToken) &&
-        (ServerUrl?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ?? false);
+    // ===== Server CRUD (persist immediately + reconnect) =====
+
+    public async Task AddOrUpdateServerAsync(ServerConfig edited, ServerConfig? original)
+    {
+        if (original is not null)
+        {
+            var idx = _settings.Servers.IndexOf(original);
+            if (idx >= 0) _settings.Servers[idx] = edited;
+        }
+        else
+        {
+            _settings.Servers.Add(edited);
+            if (_settings.DefaultServerId == Guid.Empty)
+                _settings.DefaultServerId = edited.Id;
+        }
+
+        _settings.Save();
+        ReloadServers();
+
+        if (original is null)
+            return; // brand-new server has no topics yet — nothing to (re)connect
+
+        // Only the connection-relevant fields matter. Compare the decrypted token,
+        // not the encrypted blob (DPAPI re-encrypts non-deterministically each save).
+        var connectionChanged =
+            !string.Equals(original.Url, edited.Url, StringComparison.Ordinal) ||
+            !string.Equals(original.GetAccessToken(), edited.GetAccessToken(), StringComparison.Ordinal);
+
+        if (connectionChanged)
+            await _connections.RebuildServerAsync(edited.Id);
+    }
+
+    public async Task RemoveServerAsync(ServerConfig server, bool deleteHistory)
+    {
+        // Capture the cascade-removed topics before they're gone, so we can delete
+        // their history by topic id (covers messages received while the topic lived
+        // on a different server).
+        var topicIds = _settings.Topics
+            .Where(t => t.ServerId == server.Id)
+            .Select(t => t.Id)
+            .ToList();
+
+        _settings.RemoveServer(server.Id);   // cascade-removes its topics
+        _settings.Save();
+        ReloadServers();
+
+        if (deleteHistory)
+            foreach (var id in topicIds)
+                _history.DeleteByTopicId(id);
+
+        // ApplySettings drops the connections for the now-deleted topics; other
+        // servers' sockets are left untouched.
+        await _connections.ApplySettingsAsync();
+    }
+
+    [RelayCommand]
+    private void SetDefaultServer(ServerConfig? server)
+    {
+        if (server is null) return;
+        _settings.DefaultServerId = server.Id;
+        _settings.Save();
+        ReloadServers();
+    }
+
+    // ===== Page-level Save/Discard =====
+
+    public bool CanSave => true;
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
@@ -114,22 +163,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanSave))]
-    private async Task SaveAsync()
+    private Task SaveAsync()
     {
-        var newUrl       = ServerUrl.Trim();
-        var urlChanged   = !string.Equals(_snapshot.ServerUrl, newUrl, StringComparison.Ordinal);
-        var tokenChanged = !string.Equals(_snapshot.AccessToken, AccessToken, StringComparison.Ordinal);
-
-        _settings.DefaultServer.Url = newUrl;
-        if (tokenChanged)
-            _settings.DefaultServer.SetAccessToken(AccessToken);
+        var railChanged = _settings.RailServerDisplay != RailServerDisplay;
 
         _settings.GlobalMinPriority    = GlobalMinPriority;
         _settings.HistoryRetentionDays = HistoryRetentionDays;
         _settings.ActiveHoursEnabled   = ActiveHoursEnabled;
-        if (TimeOnly.TryParseExact((string?) ActiveHoursStartText, "HH:mm", out var start))
+        _settings.RailServerDisplay    = RailServerDisplay;
+        if (TimeOnly.TryParseExact(ActiveHoursStartText, "HH:mm", out var start))
             _settings.ActiveHoursStart = start;
-        if (TimeOnly.TryParseExact((string?) ActiveHoursEndText, "HH:mm", out var end))
+        if (TimeOnly.TryParseExact(ActiveHoursEndText, "HH:mm", out var end))
             _settings.ActiveHoursEnd = end;
 
         _settings.Save();
@@ -138,36 +182,42 @@ public sealed partial class SettingsViewModel : ObservableObject
         _snapshot = TakeSnapshot();
         IsDirty = false;
 
-        // Only restart connections when ServerUrl or AccessToken actually changed.
-        // Other settings are read on demand at message-arrival time.
-        if (urlChanged || tokenChanged)
-            await _connections.RestartAllAsync();
+        if (railChanged)
+            RailServerDisplayChangedOnSave?.Invoke(this, EventArgs.Empty);
+
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
     private void Discard() => Load();
 
     private FormSnapshot TakeSnapshot() => new(
-        ServerUrl,
-        AccessToken,
         GlobalMinPriority,
         HistoryRetentionDays,
         StartWithWindows,
         ActiveHoursEnabled,
         ActiveHoursStartText,
-        ActiveHoursEndText);
+        ActiveHoursEndText,
+        RailServerDisplay);
 
     private readonly record struct FormSnapshot(
-        string ServerUrl,
-        string AccessToken,
         Priority GlobalMinPriority,
         int HistoryRetentionDays,
         bool StartWithWindows,
         bool ActiveHoursEnabled,
         string ActiveHoursStartText,
-        string ActiveHoursEndText)
+        string ActiveHoursEndText,
+        RailServerDisplay RailServerDisplay)
     {
         public static readonly FormSnapshot Empty = new(
-            string.Empty, string.Empty, Priority.Min, 0, false, false, string.Empty, string.Empty);
+            Priority.Min, 0, false, false, string.Empty, string.Empty, RailServerDisplay.Grouped);
     }
 }
+
+// Row model for the Servers list. Wraps a ServerConfig with its is-default flag.
+public sealed record ServerRowVm(ServerConfig Server, bool IsDefault)
+{
+    public string Name => Server.DisplayLabel;
+    public string Url => Server.Url;
+}
+

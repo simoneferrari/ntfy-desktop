@@ -4,16 +4,26 @@
       xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
       xmlns:sys="clr-namespace:System;assembly=mscorlib"
       xmlns:domain="clr-namespace:NtfyDesktop.Domain"
+      xmlns:settings="clr-namespace:NtfyDesktop.Features.Settings"
+      xmlns:conv="clr-namespace:NtfyDesktop.Features.Shell.Converters"
       ScrollViewer.CanContentScroll="False"
       Title="Settings">
 
     <Page.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
         <ObjectDataProvider x:Key="Priorities"
                             MethodName="GetValues"
                             ObjectType="{x:Type sys:Enum}">
             <ObjectDataProvider.MethodParameters>
                 <x:Type TypeName="domain:Priority" />
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
+        <ObjectDataProvider x:Key="RailDisplays"
+                            MethodName="GetValues"
+                            ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="settings:RailServerDisplay" />
             </ObjectDataProvider.MethodParameters>
         </ObjectDataProvider>
 
@@ -76,63 +86,66 @@
             
             <StackPanel Background="Transparent">
 
-                <!-- ======================= SERVER ======================= -->
-                <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Server" Margin="0,12,0,4" />
+                <!-- ======================= SERVERS ======================= -->
+                <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Servers" Margin="0,12,0,4" />
+                <ui:TextBlock Style="{StaticResource RowDescription}"
+                              Margin="0,0,0,4"
+                              Text="ntfy servers you subscribe to. Each topic belongs to one server; new topics use the default." />
 
-                <Border Style="{StaticResource SettingRow}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
-                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Server URL" />
-                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="ntfy instance to connect to." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <ui:TextBox Width="320"
-                                        PlaceholderText="https://ntfy.sh"
-                                        Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}" />
-                            <ui:TextBlock Margin="0,4,0,0"
-                                          Width="320"
-                                          TextWrapping="Wrap"
-                                          HorizontalAlignment="Right"
-                                          FontTypography="Caption"
-                                          Foreground="{DynamicResource SystemFillColorCriticalBrush}"
-                                          Text="{Binding ServerUrlError}"
-                                          Visibility="{Binding HasServerUrlError, Converter={StaticResource BoolToVis}}" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                <ItemsControl ItemsSource="{Binding Servers}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource SettingRow}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <ui:TextBlock Style="{StaticResource RowTitle}"
+                                                          Text="{Binding Name}"
+                                                          VerticalAlignment="Center" />
+                                            <Border Margin="8,0,0,0" Padding="6,1"
+                                                    Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                                                    CornerRadius="3"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{Binding IsDefault, Converter={StaticResource BoolToVis}}">
+                                                <ui:TextBlock FontTypography="Caption"
+                                                              Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                              Text="Default" />
+                                            </Border>
+                                        </StackPanel>
+                                        <ui:TextBlock Style="{StaticResource RowDescription}" Text="{Binding Url}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ui:Button Appearance="Secondary"
+                                                   Content="Set default"
+                                                   Margin="0,0,8,0"
+                                                   Visibility="{Binding IsDefault, Converter={StaticResource InverseBoolToVis}}"
+                                                   Command="{Binding DataContext.SetDefaultServerCommand, RelativeSource={RelativeSource AncestorType=Page}}"
+                                                   CommandParameter="{Binding Server}" />
+                                        <ui:Button Appearance="Secondary"
+                                                   Content="Edit"
+                                                   Margin="0,0,8,0"
+                                                   Tag="{Binding Server}"
+                                                   Click="OnEditServerClicked" />
+                                        <ui:Button Appearance="Secondary"
+                                                   Content="Remove"
+                                                   Tag="{Binding Server}"
+                                                   Click="OnRemoveServerClicked" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
-                <Border Style="{StaticResource SettingRow}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
-                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Access token" />
-                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Optional bearer token for authenticated topics." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <PasswordBox x:Name="TokenBox"
-                                         Width="320"
-                                         PasswordChanged="OnTokenChanged" />
-                            <!-- Cleartext transit warning: when ServerUrl uses http:// and a
-                                 token is set, TopicConnection refuses to attach the bearer
-                                 header. Tell the user why. -->
-                            <ui:TextBlock Margin="0,4,0,0"
-                                          Width="320"
-                                          TextWrapping="Wrap"
-                                          HorizontalAlignment="Right"
-                                          FontTypography="Caption"
-                                          Foreground="{DynamicResource SystemFillColorCautionBrush}"
-                                          Text="⚠ This server uses plain HTTP. The token will not be sent — switch to HTTPS for authentication."
-                                          Visibility="{Binding HasInsecureTokenWarning, Converter={StaticResource BoolToVis}}" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                <ui:Button Appearance="Secondary"
+                           Content="Add server"
+                           Margin="0,12,0,0"
+                           Icon="{ui:SymbolIcon Add24}"
+                           Click="OnAddServerClicked" />
 
                 <!-- ======================= DEFAULTS ======================= -->
                 <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Defaults" />
@@ -195,6 +208,27 @@
                         <ui:ToggleSwitch Grid.Column="1"
                                          VerticalAlignment="Center"
                                          IsChecked="{Binding StartWithWindows, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </Border>
+
+                <!-- ======================= APPEARANCE ======================= -->
+                <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Appearance" />
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Server labels in sidebar" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="How topics show which server they belong to. Only visible with more than one server." />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1"
+                                  Width="160"
+                                  VerticalAlignment="Center"
+                                  ItemsSource="{Binding Source={StaticResource RailDisplays}}"
+                                  SelectedItem="{Binding RailServerDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     </Grid>
                 </Border>
 

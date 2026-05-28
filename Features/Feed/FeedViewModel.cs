@@ -52,6 +52,9 @@ public sealed partial class FeedViewModel : ObservableObject
         _settings = settings;
         history.MessageInserted += OnHistoryMessageInserted;
         connections.ConnectionStatusChanged += OnConnectionsChanged;
+        // Topic set changed (added/removed, e.g. via server deletion) — reload so the
+        // feed drops messages whose topic/history was removed.
+        connections.TopicsChanged += OnTopicsChanged;
         gate.GlobalStatusChanged += OnGateChanged;
         gate.TopicPauseChanged += OnTopicPauseChanged;
         _ = ReloadAsync();
@@ -59,6 +62,9 @@ public sealed partial class FeedViewModel : ObservableObject
 
     private void OnConnectionsChanged(object? sender, EventArgs e) =>
         Application.Current?.Dispatcher.Invoke(RefreshReconnectVisibility);
+
+    private void OnTopicsChanged(object? sender, EventArgs e) =>
+        Application.Current?.Dispatcher.Invoke(() => _ = ReloadAsync());
 
     private void OnGateChanged(object? sender, EventArgs e) =>
         Application.Current?.Dispatcher.Invoke(RefreshReconnectVisibility);

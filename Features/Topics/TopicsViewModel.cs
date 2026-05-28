@@ -42,20 +42,18 @@ public sealed partial class TopicsViewModel : ObservableObject
     {
         if (original is not null)
         {
-            // Editing: keep the original's stable identity (Id, server, display name).
-            // The editor dialog only edits name/pause/priority/active-hours for now;
-            // the server picker + display-name field arrive with the multi-server UI.
+            // Editing: keep the original's stable identity. Server + display name now
+            // come from the editor dialog (the user may move the topic to another
+            // server or rename its label).
             edited.Id = original.Id;
-            edited.ServerId = original.ServerId;
-            edited.DisplayName = original.DisplayName;
 
             var idx = _settings.Topics.IndexOf(original);
             if (idx >= 0) _settings.Topics[idx] = edited;
         }
         else
         {
-            // New topic: assign to the default server (the UI to pick a server lands
-            // in the multi-server PR).
+            // New topic: the dialog preselects the default server, but fall back just
+            // in case it came through unset.
             if (edited.ServerId == Guid.Empty)
                 edited.ServerId = _settings.DefaultServerId;
             _settings.Topics.Add(edited);
@@ -63,7 +61,15 @@ public sealed partial class TopicsViewModel : ObservableObject
 
         _settings.Save();
         ReloadFromSettings();
-        await _connections.ApplySettingsAsync();
+
+        // Only rebuild the one topic's connection, and only when its subscription
+        // identity (topic name or server) changed — other edits (display name,
+        // priority, active hours) don't touch the socket. Add / enable / disable are
+        // handled idempotently by ApplySettings.
+        if (original is not null && (original.Name != edited.Name || original.ServerId != edited.ServerId))
+            await _connections.RebuildTopicAsync(edited.Id);
+        else
+            await _connections.ApplySettingsAsync();
     }
 
     [RelayCommand]

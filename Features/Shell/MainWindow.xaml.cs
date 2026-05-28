@@ -84,6 +84,9 @@ public partial class MainWindow : FluentWindow
         _gate.GlobalStatusChanged += OnGateChanged;
         _gate.TopicPauseChanged += OnTopicPauseChanged;
 
+        // Rebuild the rail when the user changes the server-label display mode.
+        _settingsVm.RailServerDisplayChangedOnSave += (_, _) => Dispatcher.Invoke(RebuildTopicItems);
+
         // Navigation guard for the Settings page (prompt on unsaved changes).
         RootNavigation.Navigating += OnNavigationViewNavigating;
         RootNavigation.Navigated  += OnNavigationViewNavigated;
@@ -133,18 +136,46 @@ public partial class MainWindow : FluentWindow
 
         TopicsSeparator.Visibility = Visibility.Visible;
         var insertAt = anchorIdx + 1;
-        foreach (var t in topics)
+
+        // Server context only matters with more than one server.
+        var multiServer = _settings.Servers.Count > 1;
+        var mode = multiServer ? _settings.RailServerDisplay : RailServerDisplay.None;
+
+        void InsertTopic(TopicSettings t, string? subtitle)
         {
-            var item = BuildTopicNavItem(t);
+            var item = BuildTopicNavItem(t, subtitle);
             _railItems[t.Id] = item;
             menu.Insert(insertAt++, item.Item);
             ApplyEnabledStyling(item.Item, t.Enabled);
         }
 
+        if (mode == RailServerDisplay.Grouped)
+        {
+            foreach (var server in _settings.Servers)
+            {
+                var serverTopics = topics.Where(t => t.ServerId == server.Id).ToList();
+                if (serverTopics.Count == 0) continue;
+
+                menu.Insert(insertAt++, new Wpf.Ui.Controls.NavigationViewItemHeader { Text = server.DisplayLabel });
+                foreach (var t in serverTopics)
+                    InsertTopic(t, subtitle: null);
+            }
+        }
+        else
+        {
+            foreach (var t in topics)
+            {
+                var subtitle = mode == RailServerDisplay.Subtitle
+                    ? _settings.GetServer(t.ServerId)?.DisplayLabel
+                    : null;
+                InsertTopic(t, subtitle);
+            }
+        }
+
         RefreshTopicAdornments();
     }
 
-    private RailItem BuildTopicNavItem(TopicSettings topic)
+    private RailItem BuildTopicNavItem(TopicSettings topic, string? serverSubtitle)
     {
         var pip = new Ellipse
         {
@@ -185,10 +216,32 @@ public partial class MainWindow : FluentWindow
         };
         moreButton.Click += OnTopicMoreClicked;
 
+        // Label row (topic name + pause glyph), optionally stacked over a muted
+        // server-name subtitle (Subtitle rail mode).
+        var labelRow = new StackPanel { Orientation = Orientation.Horizontal };
+        labelRow.Children.Add(label);
+        labelRow.Children.Add(pauseGlyph);
+
+        var textStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        textStack.Children.Add(labelRow);
+        if (!string.IsNullOrEmpty(serverSubtitle))
+        {
+            textStack.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = serverSubtitle,
+                FontSize = 11,
+                Foreground = PausedGlyphBrush,
+                Margin = new Thickness(0, 1, 0, 0),
+            });
+        }
+
         var leftPart = new StackPanel { Orientation = Orientation.Horizontal };
         leftPart.Children.Add(pip);
-        leftPart.Children.Add(label);
-        leftPart.Children.Add(pauseGlyph);
+        leftPart.Children.Add(textStack);
 
         // MinWidth is the workaround for WPF-UI's NavigationViewItem template:
         // its inner ContentPresenter doesn't horizontally stretch to fill the
@@ -275,7 +328,7 @@ public partial class MainWindow : FluentWindow
 
         try
         {
-            var dialog = new TopicEditorDialog(existing: null) { Owner = this };
+            var dialog = new TopicEditorDialog(existing: null, _settings.Servers, _settings.DefaultServerId) { Owner = this };
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
             await _topicsVm.AddOrUpdateAsync(dialog.Result, original: null);
@@ -400,7 +453,7 @@ public partial class MainWindow : FluentWindow
         {
             try
             {
-                var dialog = new TopicEditorDialog(topic) { Owner = this };
+                var dialog = new TopicEditorDialog(topic, _settings.Servers, _settings.DefaultServerId) { Owner = this };
                 if (dialog.ShowDialog() != true || dialog.Result is null) return;
                 await _topicsVm.AddOrUpdateAsync(dialog.Result, original: topic);
             }

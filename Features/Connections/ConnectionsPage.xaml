@@ -89,6 +89,11 @@
                                                           Text="{Binding StatusText}"
                                                           VerticalAlignment="Center" />
                                         </StackPanel>
+                                        <ui:TextBlock Margin="0,2,0,0"
+                                                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                      FontTypography="Caption"
+                                                      Text="{Binding ServerName}"
+                                                      Visibility="{Binding ShowServer, Converter={StaticResource BoolToVis}}" />
                                         <ui:TextBlock Margin="0,4,0,0"
                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                                                       FontTypography="Caption"

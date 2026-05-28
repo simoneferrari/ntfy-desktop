@@ -32,8 +32,11 @@ public sealed partial class ConnectionsViewModel : ObservableObject
     private void Refresh()
     {
         Rows.Clear();
-        foreach (var s in _connections.GetTopicStates())
-            Rows.Add(new TopicConnectionRow(s));
+        var states = _connections.GetTopicStates();
+        // Show the server only when there's more than one in play — otherwise it's noise.
+        var showServer = states.Select(s => s.ServerName).Distinct().Count() > 1;
+        foreach (var s in states)
+            Rows.Add(new TopicConnectionRow(s, showServer));
         IsEmpty = Rows.Count == 0;
         DisconnectAllCommand.NotifyCanExecuteChanged();
     }
@@ -63,11 +66,13 @@ public sealed class TopicConnectionRow
 
     private static Brush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 
-    public TopicConnectionRow(TopicConnectionState state)
+    public TopicConnectionRow(TopicConnectionState state, bool showServer)
     {
         TopicId = state.TopicId;
         TopicName = state.TopicName;
         DisplayName = state.DisplayName;
+        ServerName = state.ServerName;
+        ShowServer = showServer && !string.IsNullOrEmpty(state.ServerName);
         ConnectionStatus = state.Status;
         LastError = state.LastError;
     }
@@ -75,6 +80,8 @@ public sealed class TopicConnectionRow
     public Guid TopicId { get; }
     public string TopicName { get; }
     public string DisplayName { get; }
+    public string ServerName { get; }
+    public bool ShowServer { get; }
     public TopicConnectionStatus ConnectionStatus { get; }
     public string? LastError { get; }
 

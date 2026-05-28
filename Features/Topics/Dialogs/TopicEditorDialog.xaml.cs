@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using NtfyDesktop.Domain;
+using NtfyDesktop.Features.Settings;
 using Wpf.Ui.Controls;
 
 namespace NtfyDesktop.Features.Topics.Dialogs;
@@ -11,10 +12,10 @@ public partial class TopicEditorDialog : FluentWindow
 
     public TopicSettings? Result { get; private set; }
 
-    public TopicEditorDialog(TopicSettings? existing)
+    public TopicEditorDialog(TopicSettings? existing, IReadOnlyList<ServerConfig> servers, Guid defaultServerId)
     {
         InitializeComponent();
-        _vm = TopicEditorViewModel.FromTopic(existing);
+        _vm = TopicEditorViewModel.FromTopic(existing, servers, defaultServerId);
         DataContext = _vm;
         Title = existing is null ? "Add topic" : "Edit topic";
 
@@ -33,6 +34,13 @@ public partial class TopicEditorDialog : FluentWindow
         if (string.IsNullOrWhiteSpace(_vm.Name))
         {
             System.Windows.MessageBox.Show(this, "Topic name is required.", "Validation",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            return;
+        }
+
+        if (_vm.SelectedServer is null)
+        {
+            System.Windows.MessageBox.Show(this, "Select a server for this topic.", "Validation",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             return;
         }

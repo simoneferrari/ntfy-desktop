@@ -33,10 +33,21 @@
         <ui:TitleBar Grid.Row="0" Title="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" />
 
         <StackPanel Grid.Row="1" Margin="24,8,24,24">
+            <ui:TextBlock FontTypography="Subtitle" Text="Server" />
+            <ComboBox Margin="0,4,0,16"
+                      ItemsSource="{Binding AvailableServers}"
+                      SelectedItem="{Binding SelectedServer}"
+                      DisplayMemberPath="DisplayLabel" />
+
             <ui:TextBlock FontTypography="Subtitle" Text="Topic" />
             <ui:TextBox Margin="0,4,0,16"
                         PlaceholderText="e.g. alerts-prod"
                         Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+
+            <ui:TextBlock FontTypography="Subtitle" Text="Display name (optional)" />
+            <ui:TextBox Margin="0,4,0,16"
+                        PlaceholderText="Friendly label shown in the sidebar"
+                        Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" />
 
             <ui:ToggleSwitch Margin="0,0,0,8"
                              Content="Enabled (subscribe to this topic)"

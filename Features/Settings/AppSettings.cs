@@ -95,6 +95,20 @@ public class AppSettings
 
     public TopicSettings? GetTopicById(Guid id) => Topics.FirstOrDefault(t => t.Id == id);
 
+    /// <summary>
+    /// Removes a server and cascade-removes all of its topics. If the removed server
+    /// was the default, the default is reassigned to the first remaining server.
+    /// Does not persist — caller saves.
+    /// </summary>
+    public void RemoveServer(Guid serverId)
+    {
+        Servers.RemoveAll(s => s.Id == serverId);
+        Topics.RemoveAll(t => t.ServerId == serverId);
+
+        if (DefaultServerId == serverId)
+            DefaultServerId = Servers.Count > 0 ? Servers[0].Id : Guid.Empty;
+    }
+
     #region props
 
     public List<ServerConfig> Servers { get; set; } = new();
@@ -107,6 +121,7 @@ public class AppSettings
 
     public Priority GlobalMinPriority { get; set; } = Priority.Min;
     public int HistoryRetentionDays { get; set; } = 30;
+    public RailServerDisplay RailServerDisplay { get; set; } = RailServerDisplay.Grouped;
     // "Start with Windows" is stored exclusively in the HKCU\...\Run registry key
     // (see StartupManager); it has no representation in this file.
     public bool IsPaused { get; set; } = false;
