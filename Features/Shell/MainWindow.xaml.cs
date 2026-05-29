@@ -14,7 +14,6 @@ using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 using FeedViewModel = NtfyDesktop.Features.Feed.FeedViewModel;
 using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
 using NavigationViewItem = Wpf.Ui.Controls.NavigationViewItem;
 using SettingsViewModel = NtfyDesktop.Features.Settings.SettingsViewModel;
 using SymbolIcon = Wpf.Ui.Controls.SymbolIcon;
@@ -125,9 +124,13 @@ public partial class MainWindow : FluentWindow
 
         for (var i = separatorIdx - 1; i > anchorIdx; i--)
             menu.RemoveAt(i);
+
         _railItems.Clear();
 
-        var topics = _settings.Topics;
+        var topics = _settings.Topics
+            .OrderBy(t => t.DisplayName ?? t.Name)
+            .ToList();
+        
         if (topics.Count == 0)
         {
             TopicsSeparator.Visibility = Visibility.Collapsed;
@@ -153,10 +156,14 @@ public partial class MainWindow : FluentWindow
         {
             foreach (var server in _settings.Servers)
             {
-                var serverTopics = topics.Where(t => t.ServerId == server.Id).ToList();
+                var serverTopics = topics
+                    .Where(t => t.ServerId == server.Id)
+                    .ToList();
+
                 if (serverTopics.Count == 0) continue;
 
-                menu.Insert(insertAt++, new Wpf.Ui.Controls.NavigationViewItemHeader { Text = server.DisplayLabel });
+                menu.Insert(insertAt++, new NavigationViewItemHeader { Text = server.DisplayLabel });
+
                 foreach (var t in serverTopics)
                     InsertTopic(t, subtitle: null);
             }
@@ -185,11 +192,13 @@ public partial class MainWindow : FluentWindow
             VerticalAlignment = VerticalAlignment.Center,
             Fill = PipDisconnectedBrush,
         };
+        
         var label = new System.Windows.Controls.TextBlock
         {
             Text = topic.EffectiveDisplayName,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        
         // Pause glyph: appears after the label when the topic is effectively
         // paused (global or per-topic). Filled variant renders sharper at this
         // small size than the regular outline.
@@ -221,7 +230,7 @@ public partial class MainWindow : FluentWindow
         var labelRow = new StackPanel { Orientation = Orientation.Horizontal };
         labelRow.Children.Add(label);
         labelRow.Children.Add(pauseGlyph);
-
+        
         var textStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
@@ -246,19 +255,19 @@ public partial class MainWindow : FluentWindow
         // MinWidth is the workaround for WPF-UI's NavigationViewItem template:
         // its inner ContentPresenter doesn't horizontally stretch to fill the
         // rail's column, so a docked-right child otherwise hugs the label.
-        // OpenPaneLength is 220; minus the rail's icon column and padding,
-        // ~160 reliably pushes the more-button to the rail's right edge.
+        // OpenPaneLength is 250; minus the rail's icon column and padding,
+        // ~200 reliably pushes the more-button to the rail's right edge.
         var content = new DockPanel
         {
             LastChildFill = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinWidth = 160,
+            MinWidth = 200,
         };
         
         DockPanel.SetDock(moreButton, Dock.Right);
         content.Children.Add(moreButton);
         content.Children.Add(leftPart);
-
+        
         var item = new NavigationViewItem
         {
             Content = content,

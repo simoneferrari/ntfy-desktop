@@ -144,7 +144,7 @@
                            IsBackButtonVisible="Collapsed"
                            IsPaneToggleVisible="False"
                            PaneDisplayMode="Left"
-                           OpenPaneLength="220"
+                           OpenPaneLength="250"
                            Transition="None"
                            TransitionDuration="0"
                            SelectionChanged="OnNavigationSelectionChanged">
@@ -161,6 +161,7 @@
                      opens the editor dialog and restores the prior selection. -->
                 <ui:NavigationViewItem x:Name="AddTopicItem"
                                        Content="Add topic"
+                                       HorizontalContentAlignment="Right"
                                        Click="OnAddTopicNavClicked">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="Add24" />
