@@ -31,6 +31,7 @@ NtfyDesktop/
     Settings/                   — app-wide settings (server URL, token, defaults)
     History/                    — SQLite message store
     Feed/                       — in-app message list
+    Unread/                     — unread-count tracking + rail badges
     Shell/                      — main window, nav rail, tray icon
 ```
 
@@ -77,7 +78,11 @@ These are intentionally independent axes. Key invariants:
 
 ### History
 
-`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt).
+`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The repository fires `MessageInserted` (always) and `HistoryChanged` (after any delete) so consumers stay in sync without coupling to each caller.
+
+### Unread
+
+`UnreadTracker` (singleton) owns unread counts surfaced as rail badges. It caches per-topic counts in memory, updating incrementally on `HistoryRepository.MessageInserted` and re-seeding (`GetUnreadCounts`) on `HistoryChanged` / `TopicsChanged`. A feed is marked read on three triggers, all routed through `SetActiveView` / `SetWindowActive`: navigating to it, a message arriving while it's the active view and the window is focused, and the window regaining focus. The badge itself is a `BadgeAdorner` overlaid on each `NavigationViewItem`'s icon — the Icon slot only accepts an `IconElement`, so an adorner is the only way to sit a count bubble on top of the glyph. `MainWindow.xaml` wraps its content in an `AdornerDecorator` to guarantee an adorner layer.
 
 ### Shell
 
@@ -97,6 +102,7 @@ TopicConnection (WebSocket)
   └─ NtfyMessageReceived published (FastEndpoints)
        ├─ ShowToastNotification   — checks NotificationGate; shows/drops toast
        └─ HistoryRepository       — always inserts (pause doesn't suppress history)
+            └─ MessageInserted     — Feed appends row; UnreadTracker bumps the badge
 ```
 
 ## Security posture

@@ -10,6 +10,10 @@ public class HistoryRepository
 
     public event EventHandler<HistoryMessage>? MessageInserted;
 
+    /// <summary>Fires after rows are removed (single, by-topic, all, or a retention
+    /// sweep). Lets unread-count consumers re-sync without coupling to each caller.</summary>
+    public event EventHandler? HistoryChanged;
+
     public HistoryRepository()
     {
         Directory.CreateDirectory(App.DataPath);
@@ -33,7 +37,8 @@ public class HistoryRepository
                 title       TEXT,
                 body        TEXT,
                 tags        TEXT,
-                click       TEXT
+                click       TEXT,
+                read        INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_topic     ON messages(topic);
@@ -46,22 +51,38 @@ public class HistoryRepository
         EnsureColumn(conn, "topic_id");
         EnsureColumn(conn, "server_id");
 
+        // Unread tracking (0 = unread, 1 = read). When the column is added to an
+        // existing database, mark all pre-existing rows read so the user doesn't
+        // get flooded with unread badges for messages they've already seen — only
+        // messages arriving after the upgrade count as unread.
+        if (EnsureColumn(conn, "read", "INTEGER NOT NULL DEFAULT 0"))
+        {
+            using var markRead = conn.CreateCommand();
+            markRead.CommandText = "UPDATE messages SET read = 1";
+            markRead.ExecuteNonQuery();
+        }
+
         using var idx = conn.CreateCommand();
-        idx.CommandText = "CREATE INDEX IF NOT EXISTS idx_topic_id ON messages(topic_id)";
+        idx.CommandText = """
+            CREATE INDEX IF NOT EXISTS idx_topic_id ON messages(topic_id);
+            CREATE INDEX IF NOT EXISTS idx_unread   ON messages(topic_id) WHERE read = 0;
+            """;
         idx.ExecuteNonQuery();
     }
 
-    private static void EnsureColumn(SqliteConnection conn, string column)
+    /// <summary>Adds the column if missing. Returns true when it was actually added.</summary>
+    private static bool EnsureColumn(SqliteConnection conn, string column, string definition = "TEXT")
     {
         using var check = conn.CreateCommand();
         check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = @c";
         check.Parameters.AddWithValue("@c", column);
         var exists = Convert.ToInt64(check.ExecuteScalar()) > 0;
-        if (exists) return;
+        if (exists) return false;
 
         using var alter = conn.CreateCommand();
-        alter.CommandText = $"ALTER TABLE messages ADD COLUMN {column} TEXT";
+        alter.CommandText = $"ALTER TABLE messages ADD COLUMN {column} {definition}";
         alter.ExecuteNonQuery();
+        return true;
     }
 
     /// <summary>
@@ -143,12 +164,50 @@ public class HistoryRepository
         return results;
     }
 
+    /// <summary>
+    /// Unread (read = 0) message counts grouped by topic id. Rows whose topic_id is
+    /// null/blank (pre-backfill orphans) bucket under <see cref="Guid.Empty"/>; they
+    /// still appear in the All-topics feed, so counting them keeps the total honest.
+    /// </summary>
+    public Dictionary<Guid, int> GetUnreadCounts()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT topic_id, COUNT(*) FROM messages WHERE read = 0 GROUP BY topic_id";
+
+        var counts = new Dictionary<Guid, int>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var id = reader.IsDBNull(0) || !Guid.TryParse(reader.GetString(0), out var g) ? Guid.Empty : g;
+            counts[id] = counts.GetValueOrDefault(id) + reader.GetInt32(1);
+        }
+        return counts;
+    }
+
+    public void MarkTopicRead(Guid topicId)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE messages SET read = 1 WHERE topic_id = @id AND read = 0";
+        cmd.Parameters.AddWithValue("@id", topicId.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
+    public void MarkAllRead()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE messages SET read = 1 WHERE read = 0";
+        cmd.ExecuteNonQuery();
+    }
+
     public void DeleteAll()
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages";
-        cmd.ExecuteNonQuery();
+        RaiseIfDeleted(cmd.ExecuteNonQuery());
     }
 
     public void DeleteByTopicId(Guid topicId)
@@ -157,7 +216,7 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE topic_id = @id";
         cmd.Parameters.AddWithValue("@id", topicId.ToString());
-        cmd.ExecuteNonQuery();
+        RaiseIfDeleted(cmd.ExecuteNonQuery());
     }
 
     public void DeleteByRowId(long rowId)
@@ -166,7 +225,7 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", rowId);
-        cmd.ExecuteNonQuery();
+        RaiseIfDeleted(cmd.ExecuteNonQuery());
     }
 
     public void DeleteOlderThan(int days)
@@ -176,7 +235,13 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE timestamp < @cutoff";
         cmd.Parameters.AddWithValue("@cutoff", cutoff);
-        cmd.ExecuteNonQuery();
+        RaiseIfDeleted(cmd.ExecuteNonQuery());
+    }
+
+    private void RaiseIfDeleted(int rowsAffected)
+    {
+        if (rowsAffected > 0)
+            HistoryChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private SqliteConnection Open()

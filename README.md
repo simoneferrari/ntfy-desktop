@@ -44,6 +44,7 @@ A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics acr
 
 **Feed and history**
 - In-app message feed with per-topic filtering, full-text search, and priority threshold
+- Unread-message badges on the rail (per topic and across all topics); opening a feed marks it read
 - Message history persisted in SQLite, with configurable retention
 
 **Security**
@@ -82,7 +83,8 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [ ] Encrypt `history.db` at rest
 
 **Later**
-- [ ] Unread/read state + tray badge count
+- [x] Unread/read state with per-topic and All-topics badges in the rail
+- [ ] Tray badge count
 - [ ] Windows Focus Assist integration
 - [ ] Test-publish dialog
 - [ ] Settings import/export
