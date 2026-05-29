@@ -52,6 +52,16 @@ public class AppSettings
     }
 
     /// <summary>
+    /// Raised when something affecting how topics/servers are *displayed* changes
+    /// (server rename, the show-server-label toggle) — as opposed to the topic set
+    /// itself changing. The rail and feed re-render in response. (Events aren't
+    /// serialized, so this is safe on the settings model.)
+    /// </summary>
+    public event EventHandler? DisplayChanged;
+
+    public void RaiseDisplayChanged() => DisplayChanged?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
     /// Migrates a pre-multi-server config: synthesizes a "Default" server from the
     /// legacy ServerUrl/token, assigns every topic to it, and gives each topic a
     /// stable Id. Also runs on a fresh install so there's always at least one server.
@@ -84,6 +94,17 @@ public class AppSettings
         {
             if (topic.Id == Guid.Empty)        { topic.Id = Guid.NewGuid(); changed = true; }
             if (topic.ServerId == Guid.Empty)  { topic.ServerId = DefaultServerId; changed = true; }
+        }
+
+        // Rail grouping is now user-defined groups, not by-server. The old
+        // RailServerDisplay enum collapses to a single "show the server label"
+        // bool: Grouped/Subtitle both implied server context (-> true), None -> false.
+        // Migrate once, then drop the legacy field so it stops round-tripping.
+        if (RailServerDisplay is { } legacy)
+        {
+            ShowServerLabel = legacy != Settings.RailServerDisplay.None;
+            RailServerDisplay = null;
+            changed = true;
         }
 
         return changed;
@@ -121,7 +142,20 @@ public class AppSettings
 
     public Priority GlobalMinPriority { get; set; } = Priority.Min;
     public int HistoryRetentionDays { get; set; } = 30;
-    public RailServerDisplay RailServerDisplay { get; set; } = RailServerDisplay.Grouped;
+
+    /// <summary>Show each topic's server as a subtitle in the rail (only meaningful
+    /// with more than one server). Replaces the old by-server grouping.</summary>
+    public bool ShowServerLabel { get; set; } = true;
+
+    /// <summary>Group names whose rail folder is collapsed. Persisted so the
+    /// expand/collapse state survives restarts.</summary>
+    public List<string> CollapsedGroups { get; set; } = new();
+
+    // Legacy rail-display enum, retained only so older settings.json deserialize and
+    // migrate into ShowServerLabel (see Migrate). Nullable + ignored-when-null so it
+    // disappears from the file once migrated.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RailServerDisplay? RailServerDisplay { get; set; }
     // "Start with Windows" is stored exclusively in the HKCU\...\Run registry key
     // (see StartupManager); it has no representation in this file.
     public bool IsPaused { get; set; } = false;

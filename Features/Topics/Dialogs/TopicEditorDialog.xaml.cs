@@ -12,10 +12,11 @@ public partial class TopicEditorDialog : FluentWindow
 
     public TopicSettings? Result { get; private set; }
 
-    public TopicEditorDialog(TopicSettings? existing, IReadOnlyList<ServerConfig> servers, Guid defaultServerId)
+    public TopicEditorDialog(TopicSettings? existing, IReadOnlyList<ServerConfig> servers, Guid defaultServerId,
+        IReadOnlyList<string> groups)
     {
         InitializeComponent();
-        _vm = TopicEditorViewModel.FromTopic(existing, servers, defaultServerId);
+        _vm = TopicEditorViewModel.FromTopic(existing, servers, defaultServerId, groups);
         DataContext = _vm;
         Title = existing is null ? "Add topic" : "Edit topic";
 

@@ -40,6 +40,7 @@ public partial class MainWindow : FluentWindow
     private readonly TopicsViewModel _topicsVm;
     private readonly UnreadTracker _unread;
     private readonly Dictionary<Guid, RailItem> _railItems = new();
+    private readonly Dictionary<string, IconBadge> _groupBadges = new();
     private IconBadge? _allTopicsBadge;
 
     private sealed record RailItem(NavigationViewItem Item, Ellipse Pip, SymbolIcon PauseGlyph, IconBadge Badge);
@@ -90,8 +91,9 @@ public partial class MainWindow : FluentWindow
         _gate.GlobalStatusChanged += OnGateChanged;
         _gate.TopicPauseChanged += OnTopicPauseChanged;
 
-        // Rebuild the rail when the user changes the server-label display mode.
-        _settingsVm.RailServerDisplayChangedOnSave += (_, _) => Dispatcher.Invoke(RebuildTopicItems);
+        // Rebuild the rail when a display-affecting setting changes (server rename,
+        // server-label toggle).
+        _settings.DisplayChanged += (_, _) => Dispatcher.Invoke(RebuildTopicItems);
 
         // Unread badges follow the tracker. Window focus drives "viewing" state:
         // regaining focus marks the current feed read (catches messages that
@@ -143,11 +145,12 @@ public partial class MainWindow : FluentWindow
             menu.RemoveAt(i);
 
         _railItems.Clear();
+        _groupBadges.Clear();
 
         var topics = _settings.Topics
-            .OrderBy(t => t.DisplayName ?? t.Name)
+            .OrderBy(t => t.EffectiveDisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-        
+
         if (topics.Count == 0)
         {
             TopicsSeparator.Visibility = Visibility.Collapsed;
@@ -157,48 +160,93 @@ public partial class MainWindow : FluentWindow
         TopicsSeparator.Visibility = Visibility.Visible;
         var insertAt = anchorIdx + 1;
 
-        // Server context only matters with more than one server.
-        var multiServer = _settings.Servers.Count > 1;
-        var mode = multiServer ? _settings.RailServerDisplay : RailServerDisplay.None;
+        // Server context only matters with more than one server (otherwise every
+        // topic shows the same label). The toggle gates it on top of that.
+        var showServer = _settings.Servers.Count > 1 && _settings.ShowServerLabel;
+        string? Subtitle(TopicSettings t) =>
+            showServer ? _settings.GetServer(t.ServerId)?.DisplayLabel : null;
 
-        void InsertTopic(TopicSettings t, string? subtitle)
+        RailItem Register(TopicSettings t)
         {
-            var item = BuildTopicNavItem(t, subtitle);
+            var item = BuildTopicNavItem(t, Subtitle(t));
             _railItems[t.Id] = item;
-            menu.Insert(insertAt++, item.Item);
             ApplyEnabledStyling(item.Item, t.Enabled);
+            return item;
         }
 
-        if (mode == RailServerDisplay.Grouped)
+        // Ungrouped topics sit at the top level, above the folders.
+        foreach (var t in topics.Where(t => string.IsNullOrWhiteSpace(t.GroupName)))
+            menu.Insert(insertAt++, Register(t).Item);
+
+        // Then one collapsible folder per group, alphabetical. (topics is already
+        // sorted, so each group's children stay alphabetical.)
+        var groups = topics
+            .Where(t => !string.IsNullOrWhiteSpace(t.GroupName))
+            .GroupBy(t => t.GroupName!.Trim())
+            .OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase);
+
+        foreach (var group in groups)
         {
-            foreach (var server in _settings.Servers)
-            {
-                var serverTopics = topics
-                    .Where(t => t.ServerId == server.Id)
-                    .ToList();
-
-                if (serverTopics.Count == 0) continue;
-
-                menu.Insert(insertAt++, new NavigationViewItemHeader { Text = server.DisplayLabel });
-
-                foreach (var t in serverTopics)
-                    InsertTopic(t, subtitle: null);
-            }
-        }
-        else
-        {
-            foreach (var t in topics)
-            {
-                var subtitle = mode == RailServerDisplay.Subtitle
-                    ? _settings.GetServer(t.ServerId)?.DisplayLabel
-                    : null;
-                InsertTopic(t, subtitle);
-            }
+            var folder = BuildGroupFolder(group.Key);
+            foreach (var t in group)
+                folder.MenuItems.Add(Register(t).Item);
+            menu.Insert(insertAt++, folder);
         }
 
         RefreshTopicAdornments();
         RefreshBadges();
     }
+
+    // A collapsible group folder: a non-navigating parent nav item whose children
+    // are the group's topic items. Carries an aggregate unread badge on its icon and
+    // persists its expand/collapse state.
+    private NavigationViewItem BuildGroupFolder(string groupName)
+    {
+        var icon = new SymbolIcon { Symbol = SymbolRegular.Folder24 };
+
+        var folder = new NavigationViewItem
+        {
+            Content = groupName,
+            Icon = icon,
+            // No TargetPageType — clicking expands/collapses, never navigates.
+        };
+
+        // Restore persisted collapse state before wiring the listener, so this
+        // programmatic set doesn't trigger a redundant save.
+        folder.IsExpanded = !_settings.CollapsedGroups.Contains(groupName);
+
+        _groupBadges[groupName] = new IconBadge(icon);
+
+        // NavigationViewItem has no Expanded/Collapsed event, so watch the DP.
+        // Detach on Unloaded — folders are recreated on every rebuild.
+        var dpd = DependencyPropertyDescriptor.FromProperty(
+            NavigationViewItem.IsExpandedProperty, typeof(NavigationViewItem));
+        void OnExpandChanged(object? s, EventArgs e) => PersistGroupCollapsed(groupName, !folder.IsExpanded);
+        dpd.AddValueChanged(folder, OnExpandChanged);
+        folder.Unloaded += (_, _) => dpd.RemoveValueChanged(folder, OnExpandChanged);
+
+        return folder;
+    }
+
+    private void PersistGroupCollapsed(string groupName, bool collapsed)
+    {
+        var alreadyCollapsed = _settings.CollapsedGroups.Contains(groupName);
+        if (collapsed == alreadyCollapsed) return;
+
+        if (collapsed) _settings.CollapsedGroups.Add(groupName);
+        else           _settings.CollapsedGroups.Remove(groupName);
+        _settings.Save();
+    }
+
+    // Distinct existing group names, offered as suggestions in the topic editor.
+    private IReadOnlyList<string> ExistingGroupNames() =>
+        _settings.Topics
+            .Select(t => t.GroupName?.Trim())
+            .Where(g => !string.IsNullOrEmpty(g))
+            .Select(g => g!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
 
     // Pushes current unread counts onto the rail badges. Cheap (in-memory counts);
     // safe to call after any rebuild or on every tracker change.
@@ -207,6 +255,11 @@ public partial class MainWindow : FluentWindow
         _allTopicsBadge?.Set(_unread.Total);
         foreach (var (id, rail) in _railItems)
             rail.Badge.Set(_unread.CountFor(id));
+        // Folder badge = sum of unread across the group's topics.
+        foreach (var (group, badge) in _groupBadges)
+            badge.Set(_settings.Topics
+                .Where(t => string.Equals(t.GroupName?.Trim(), group, StringComparison.Ordinal))
+                .Sum(t => _unread.CountFor(t.Id)));
     }
 
     private RailItem BuildTopicNavItem(TopicSettings topic, string? serverSubtitle)
@@ -348,11 +401,14 @@ public partial class MainWindow : FluentWindow
     {
         if (sender.SelectedItem is not NavigationViewItem item) return;
 
-        // Leaving the feed for Settings / Connections: no feed is on screen, so
-        // arrivals from here on should count as unread.
         if (item.TargetPageType != typeof(FeedPage))
         {
-            _unread.SetActiveView(ActiveView.None);
+            // A real other page (Settings / Connections) means no feed is on screen,
+            // so arrivals from here on count as unread. Group folders and action items
+            // have no TargetPageType at all — leave the active view untouched for those
+            // (expanding a folder isn't "leaving the feed").
+            if (item.TargetPageType is not null)
+                _unread.SetActiveView(ActiveView.None);
             return;
         }
 
@@ -376,7 +432,7 @@ public partial class MainWindow : FluentWindow
 
         try
         {
-            var dialog = new TopicEditorDialog(existing: null, _settings.Servers, _settings.DefaultServerId) { Owner = this };
+            var dialog = new TopicEditorDialog(existing: null, _settings.Servers, _settings.DefaultServerId, ExistingGroupNames()) { Owner = this };
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
             await _topicsVm.AddOrUpdateAsync(dialog.Result, original: null);
@@ -501,7 +557,7 @@ public partial class MainWindow : FluentWindow
         {
             try
             {
-                var dialog = new TopicEditorDialog(topic, _settings.Servers, _settings.DefaultServerId) { Owner = this };
+                var dialog = new TopicEditorDialog(topic, _settings.Servers, _settings.DefaultServerId, ExistingGroupNames()) { Owner = this };
                 if (dialog.ShowDialog() != true || dialog.Result is null) return;
                 await _topicsVm.AddOrUpdateAsync(dialog.Result, original: topic);
             }

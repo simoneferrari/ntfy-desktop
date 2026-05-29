@@ -12,9 +12,13 @@ public sealed partial class TopicEditorViewModel : ObservableObject
 
     public IReadOnlyList<ServerConfig> AvailableServers { get; private set; } = Array.Empty<ServerConfig>();
 
+    /// <summary>Existing group names, offered as suggestions in the editable group box.</summary>
+    public IReadOnlyList<string> AvailableGroups { get; private set; } = Array.Empty<string>();
+
     [ObservableProperty] private ServerConfig? _selectedServer;
     [ObservableProperty] private string _name = string.Empty;
     [ObservableProperty] private string _displayName = string.Empty;
+    [ObservableProperty] private string _groupName = string.Empty;
     [ObservableProperty] private bool _enabled = true;
     [ObservableProperty] private bool _isPaused;
     [ObservableProperty] private bool _hasMinPriority;
@@ -27,13 +31,15 @@ public sealed partial class TopicEditorViewModel : ObservableObject
     public static TopicEditorViewModel FromTopic(
         TopicSettings? source,
         IReadOnlyList<ServerConfig> servers,
-        Guid defaultServerId)
+        Guid defaultServerId,
+        IReadOnlyList<string> groups)
     {
         if (source is null)
         {
             return new TopicEditorViewModel
             {
                 AvailableServers = servers,
+                AvailableGroups = groups,
                 SelectedServer = servers.FirstOrDefault(s => s.Id == defaultServerId) ?? servers.FirstOrDefault(),
             };
         }
@@ -42,9 +48,11 @@ public sealed partial class TopicEditorViewModel : ObservableObject
         {
             Id = source.Id,
             AvailableServers = servers,
+            AvailableGroups = groups,
             SelectedServer = servers.FirstOrDefault(s => s.Id == source.ServerId) ?? servers.FirstOrDefault(),
             Name = source.Name,
             DisplayName = source.DisplayName ?? string.Empty,
+            GroupName = source.GroupName ?? string.Empty,
             Enabled = source.Enabled,
             IsPaused = source.IsPaused,
             HasMinPriority = source.MinPriority is not null,
@@ -62,6 +70,7 @@ public sealed partial class TopicEditorViewModel : ObservableObject
         ServerId = SelectedServer?.Id ?? Guid.Empty,
         Name = Name.Trim(),
         DisplayName = string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim(),
+        GroupName = string.IsNullOrWhiteSpace(GroupName) ? null : GroupName.Trim(),
         Enabled = Enabled,
         IsPaused = IsPaused,
         MinPriority = HasMinPriority ? MinPriority : null,

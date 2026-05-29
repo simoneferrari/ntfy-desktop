@@ -49,6 +49,12 @@
                         PlaceholderText="Friendly label shown in the sidebar"
                         Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" />
 
+            <ui:TextBlock FontTypography="Subtitle" Text="Group (optional)" />
+            <ComboBox Margin="0,4,0,16"
+                      IsEditable="True"
+                      ItemsSource="{Binding AvailableGroups}"
+                      Text="{Binding GroupName, UpdateSourceTrigger=PropertyChanged}" />
+
             <ui:ToggleSwitch Margin="0,0,0,8"
                              Content="Enabled (subscribe to this topic)"
                              IsChecked="{Binding Enabled}" />

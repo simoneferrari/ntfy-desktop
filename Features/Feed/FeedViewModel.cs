@@ -55,6 +55,8 @@ public sealed partial class FeedViewModel : ObservableObject
         // Topic set changed (added/removed, e.g. via server deletion) — reload so the
         // feed drops messages whose topic/history was removed.
         connections.TopicsChanged += OnTopicsChanged;
+        // Server rename / show-server-label toggle — re-enrich rows with new labels.
+        settings.DisplayChanged += OnTopicsChanged;
         gate.GlobalStatusChanged += OnGateChanged;
         gate.TopicPauseChanged += OnTopicPauseChanged;
         _ = ReloadAsync();
@@ -166,6 +168,9 @@ public sealed partial class FeedViewModel : ObservableObject
         // Topic + server chips only on the combined All-topics view; the server
         // chip additionally needs more than one server to be meaningful.
         m.ShowTopic = allTopics;
+        // Server chip on the combined view whenever more than one server exists. This
+        // is independent of the sidebar "show server label" toggle (a chip in the
+        // mixed feed clarifies which server a row came from regardless).
         m.ServerName = allTopics && _settings.Servers.Count > 1 && topic is not null
             ? _settings.GetServer(topic.ServerId)?.DisplayLabel
             : null;

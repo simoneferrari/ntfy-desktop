@@ -39,13 +39,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _activeHoursEnabled;
     [ObservableProperty] private string _activeHoursStartText = "09:00";
     [ObservableProperty] private string _activeHoursEndText   = "18:00";
-    [ObservableProperty] private RailServerDisplay _railServerDisplay = RailServerDisplay.Grouped;
+    [ObservableProperty] private bool _showServerLabel = true;
 
     [ObservableProperty] private bool _isDirty;
-
-    // Raised after Save when the rail display mode changed, so the shell can rebuild
-    // the nav rail.
-    public event EventHandler? RailServerDisplayChangedOnSave;
 
     public SettingsViewModel(AppSettings settings, ConnectionManager connections, HistoryRepository history)
     {
@@ -64,7 +60,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ActiveHoursEnabled   = _settings.ActiveHoursEnabled;
         ActiveHoursStartText = _settings.ActiveHoursStart.ToString("HH:mm");
         ActiveHoursEndText   = _settings.ActiveHoursEnd.ToString("HH:mm");
-        RailServerDisplay    = _settings.RailServerDisplay;
+        ShowServerLabel      = _settings.ShowServerLabel;
 
         ReloadServers();
 
@@ -102,6 +98,10 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         _settings.Save();
         ReloadServers();
+
+        // A rename changes the server's DisplayLabel, which the rail subtitle and
+        // the All-topics feed chip show — refresh them.
+        _settings.RaiseDisplayChanged();
 
         if (original is null)
             return; // brand-new server has no topics yet — nothing to (re)connect
@@ -165,12 +165,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSave))]
     private Task SaveAsync()
     {
-        var railChanged = _settings.RailServerDisplay != RailServerDisplay;
+        var railChanged = _settings.ShowServerLabel != ShowServerLabel;
 
         _settings.GlobalMinPriority    = GlobalMinPriority;
         _settings.HistoryRetentionDays = HistoryRetentionDays;
         _settings.ActiveHoursEnabled   = ActiveHoursEnabled;
-        _settings.RailServerDisplay    = RailServerDisplay;
+        _settings.ShowServerLabel      = ShowServerLabel;
         if (TimeOnly.TryParseExact(ActiveHoursStartText, "HH:mm", out var start))
             _settings.ActiveHoursStart = start;
         if (TimeOnly.TryParseExact(ActiveHoursEndText, "HH:mm", out var end))
@@ -183,7 +183,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsDirty = false;
 
         if (railChanged)
-            RailServerDisplayChangedOnSave?.Invoke(this, EventArgs.Empty);
+            _settings.RaiseDisplayChanged();
 
         return Task.CompletedTask;
     }
@@ -198,7 +198,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ActiveHoursEnabled,
         ActiveHoursStartText,
         ActiveHoursEndText,
-        RailServerDisplay);
+        ShowServerLabel);
 
     private readonly record struct FormSnapshot(
         Priority GlobalMinPriority,
@@ -207,10 +207,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         bool ActiveHoursEnabled,
         string ActiveHoursStartText,
         string ActiveHoursEndText,
-        RailServerDisplay RailServerDisplay)
+        bool ShowServerLabel)
     {
         public static readonly FormSnapshot Empty = new(
-            Priority.Min, 0, false, false, string.Empty, string.Empty, RailServerDisplay.Grouped);
+            Priority.Min, 0, false, false, string.Empty, string.Empty, true);
     }
 }
 

@@ -17,6 +17,10 @@ public class TopicSettings
     /// <summary>Optional friendly label; falls back to <see cref="Name"/> for display.</summary>
     public string? DisplayName { get; set; }
 
+    /// <summary>Optional user-defined group/folder for the nav rail. Null/blank =
+    /// ungrouped (shown above the folders).</summary>
+    public string? GroupName { get; set; }
+
     public bool Enabled { get; set; } = true;
     public bool IsPaused { get; set; } = false;
     public Priority? MinPriority { get; set; } = null;
@@ -36,6 +40,7 @@ public class TopicSettings
         ServerId = ServerId,
         Name = Name,
         DisplayName = DisplayName,
+        GroupName = GroupName,
         Enabled = Enabled,
         IsPaused = IsPaused,
         MinPriority = MinPriority,

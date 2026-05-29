@@ -19,14 +19,6 @@
                 <x:Type TypeName="domain:Priority" />
             </ObjectDataProvider.MethodParameters>
         </ObjectDataProvider>
-        <ObjectDataProvider x:Key="RailDisplays"
-                            MethodName="GetValues"
-                            ObjectType="{x:Type sys:Enum}">
-            <ObjectDataProvider.MethodParameters>
-                <x:Type TypeName="settings:RailServerDisplay" />
-            </ObjectDataProvider.MethodParameters>
-        </ObjectDataProvider>
-
         <Style x:Key="SettingRow" TargetType="Border">
             <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
@@ -221,14 +213,12 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
-                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Server labels in sidebar" />
-                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="How topics show which server they belong to. Only visible with more than one server." />
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Show server labels in sidebar" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Show which server each topic belongs to, as a subtitle under its name. Only visible with more than one server." />
                         </StackPanel>
-                        <ComboBox Grid.Column="1"
-                                  Width="160"
-                                  VerticalAlignment="Center"
-                                  ItemsSource="{Binding Source={StaticResource RailDisplays}}"
-                                  SelectedItem="{Binding RailServerDisplay, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ui:ToggleSwitch Grid.Column="1"
+                                         VerticalAlignment="Center"
+                                         IsChecked="{Binding ShowServerLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     </Grid>
                 </Border>
 
