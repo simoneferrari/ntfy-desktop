@@ -70,7 +70,7 @@ These are intentionally independent axes. Key invariants:
 
 ### Topics
 
-`TopicsViewModel` is the canonical list of configured topics (`ObservableCollection<TopicSettings>`). It exposes `AddOrUpdateAsync`, `RemoveAsync`, and `ToggleEnabledAsync`. Topic CRUD is surfaced in the nav rail (not on a dedicated settings page).
+`TopicsViewModel` is the canonical list of configured topics (`ObservableCollection<TopicSettings>`). It exposes `AddOrUpdateAsync`, `RemoveAsync(topic, deleteHistory)`, and `ToggleEnabledAsync`. Topic CRUD is surfaced in the nav rail (not on a dedicated settings page). Removal prompts the user to keep the topic's history (still browsable under "All topics") or delete it, mirroring server removal.
 
 ### Settings
 
