@@ -85,6 +85,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 **Later**
 - [x] Unread/read state with per-topic and All-topics badges in the rail
 - [ ] Tray badge count
+- [ ] Multiplex topics per server onto a single WebSocket (like the official web client; fewer sockets, avoids per-visitor connection/subscription limits)
 - [ ] Windows Focus Assist integration
 - [ ] Test-publish dialog
 - [ ] Settings import/export

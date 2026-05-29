@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Features.History;
 using NtfyDesktop.Features.Settings;
 
 namespace NtfyDesktop.Features.Topics;
@@ -14,6 +14,7 @@ public sealed partial class TopicsViewModel : ObservableObject
 {
     private readonly AppSettings _settings;
     private readonly ConnectionManager _connections;
+    private readonly HistoryRepository _history;
 
     public ObservableCollection<TopicSettings> Topics { get; } = new();
 
@@ -23,10 +24,11 @@ public sealed partial class TopicsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isEmpty = true;
 
-    public TopicsViewModel(AppSettings settings, ConnectionManager connections)
+    public TopicsViewModel(AppSettings settings, ConnectionManager connections, HistoryRepository history)
     {
         _settings = settings;
         _connections = connections;
+        _history = history;
         Topics.CollectionChanged += (_, _) => IsEmpty = Topics.Count == 0;
         ReloadFromSettings();
     }
@@ -72,13 +74,18 @@ public sealed partial class TopicsViewModel : ObservableObject
             await _connections.ApplySettingsAsync();
     }
 
-    [RelayCommand]
-    private async Task RemoveAsync(TopicSettings topic)
+    // Remove a topic. When deleteHistory is false the messages are kept and stay
+    // browsable under "All topics" (mirrors server removal); when true they're
+    // purged by topic id.
+    public async Task RemoveAsync(TopicSettings topic, bool deleteHistory)
     {
         _settings.Topics.Remove(topic);
         _settings.Save();
 
         ReloadFromSettings();
+
+        if (deleteHistory)
+            _history.DeleteByTopicId(topic.Id);
 
         await _connections.ApplySettingsAsync();
     }

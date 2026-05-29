@@ -516,7 +516,7 @@ public partial class MainWindow : FluentWindow
             Header = "Remove",
             Icon = new SymbolIcon { Symbol = SymbolRegular.Delete24, FontSize = 14 },
         };
-        removeItem.Click += (_, _) => _topicsVm.RemoveCommand.Execute(topic);
+        removeItem.Click += async (_, _) => await RemoveTopicWithPromptAsync(topic);
 
         menu.Items.Add(pauseItem);
         menu.Items.Add(reconnectItem);
@@ -527,6 +527,38 @@ public partial class MainWindow : FluentWindow
         menu.Items.Add(removeItem);
 
         return menu;
+    }
+
+    // Three-way prompt mirroring server removal: keep the topic's history (still
+    // browsable under "All topics"), delete it too, or cancel.
+    private async Task RemoveTopicWithPromptAsync(TopicSettings topic)
+    {
+        var dialog = new Wpf.Ui.Controls.MessageBox
+        {
+            Title = "Remove topic",
+            Content = $"Remove “{topic.EffectiveDisplayName}”?\n\n" +
+                      "Keep its message history (still browsable under “All topics”), or delete it too?",
+            PrimaryButtonText = "Keep history",
+            SecondaryButtonText = "Delete history",
+            CloseButtonText = "Cancel",
+        };
+
+        bool deleteHistory;
+        switch (await dialog.ShowDialogAsync())
+        {
+            case Wpf.Ui.Controls.MessageBoxResult.Primary:   deleteHistory = false; break;
+            case Wpf.Ui.Controls.MessageBoxResult.Secondary: deleteHistory = true;  break;
+            default: return; // Cancel
+        }
+
+        try
+        {
+            await _topicsVm.RemoveAsync(topic, deleteHistory);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Unexpected error: " + ex.Message);
+        }
     }
 
     /// <summary>
