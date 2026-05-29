@@ -72,6 +72,8 @@ These are intentionally independent axes. Key invariants:
 
 `TopicsViewModel` is the canonical list of configured topics (`ObservableCollection<TopicSettings>`). It exposes `AddOrUpdateAsync`, `RemoveAsync(topic, deleteHistory)`, and `ToggleEnabledAsync`. Topic CRUD is surfaced in the nav rail (not on a dedicated settings page). Removal prompts the user to keep the topic's history (still browsable under "All topics") or delete it, mirroring server removal. `TopicSettings.GroupName` (nullable) assigns a topic to a rail folder, set via an editable combo in the topic editor.
 
+Ordering is manual: the `AppSettings.Topics` list order is the source of truth for topic order *within a section* (a group, or the ungrouped set), and `AppSettings.GroupOrder` for the folder order. A one-time `Migrate()` seed (gated by `OrderInitialized`) sorts both alphabetically so the first launch matches the old alphabetical rail. `TopicsViewModel` exposes `MoveTopic`/`MoveTopicToGroup`/`MoveGroup` (+ `Can…` guards) and `SyncGroupOrder` (reconciles `GroupOrder` with groups actually in use). Reorders persist and raise `AppSettings.DisplayChanged` to rebuild the rail. Surfaced via the topic three-dot menu (Move up/down, Move to group) and a folder right-click menu (Move up/down); drag-and-drop is a planned follow-up.
+
 ### Settings
 
 `AppSettings` owns JSON serialisation and DPAPI-wrapped token storage (`GetAccessToken` / `SetAccessToken`). The `SettingsViewModel` uses snapshot-based dirty tracking: a `FormSnapshot` is taken on `Load()`; `IsDirty` is recomputed on every property change by comparing against the snapshot.

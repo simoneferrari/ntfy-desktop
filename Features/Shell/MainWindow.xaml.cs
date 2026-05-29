@@ -147,11 +147,7 @@ public partial class MainWindow : FluentWindow
         _railItems.Clear();
         _groupBadges.Clear();
 
-        var topics = _settings.Topics
-            .OrderBy(t => t.EffectiveDisplayName, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
-
-        if (topics.Count == 0)
+        if (_settings.Topics.Count == 0)
         {
             TopicsSeparator.Visibility = Visibility.Collapsed;
             return;
@@ -174,27 +170,28 @@ public partial class MainWindow : FluentWindow
             return item;
         }
 
-        // Ungrouped topics sit at the top level, above the folders.
-        foreach (var t in topics.Where(t => string.IsNullOrWhiteSpace(t.GroupName)))
-            menu.Insert(insertAt++, Register(t).Item);
+        // Order is the Topics list order within a section, and GroupOrder for the
+        // folders themselves (both user-arranged). Ungrouped topics sit at the top
+        // level, above the folders.
+        TopicsInGroup(null).ForEach(t => menu.Insert(insertAt++, Register(t).Item));
 
-        // Then one collapsible folder per group, alphabetical. (topics is already
-        // sorted, so each group's children stay alphabetical.)
-        var groups = topics
-            .Where(t => !string.IsNullOrWhiteSpace(t.GroupName))
-            .GroupBy(t => t.GroupName!.Trim())
-            .OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase);
-
-        foreach (var group in groups)
+        foreach (var group in _topicsVm.OrderedGroups())
         {
-            var folder = BuildGroupFolder(group.Key);
-            foreach (var t in group)
+            var folder = BuildGroupFolder(group);
+            foreach (var t in TopicsInGroup(group))
                 folder.MenuItems.Add(Register(t).Item);
             menu.Insert(insertAt++, folder);
         }
 
         RefreshTopicAdornments();
         RefreshBadges();
+    }
+
+    // Topics in the given group (null = ungrouped), in Topics list order.
+    private List<TopicSettings> TopicsInGroup(string? group)
+    {
+        var section = group ?? string.Empty;
+        return _settings.Topics.Where(t => (t.GroupName?.Trim() ?? string.Empty) == section).ToList();
     }
 
     // A collapsible group folder: a non-navigating parent nav item whose children
@@ -209,6 +206,7 @@ public partial class MainWindow : FluentWindow
             Content = groupName,
             Icon = icon,
             // No TargetPageType — clicking expands/collapses, never navigates.
+            ContextMenu = BuildGroupContextMenu(groupName),
         };
 
         // Restore persisted collapse state before wiring the listener, so this
@@ -293,24 +291,12 @@ public partial class MainWindow : FluentWindow
             Visibility = Visibility.Collapsed,
         };
 
-        // Right-docked three-dot button (shown on hover/selected by the
-        // TopicMoreButton style in MainWindow.xaml).
-        var moreButton = new System.Windows.Controls.Button
-        {
-            Style = (Style)FindResource("TopicMoreButton"),
-            Content = new SymbolIcon { Symbol = SymbolRegular.MoreHorizontal24, FontSize = 14 },
-            Tag = topic.Id,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4, 0, 0, 0),
-        };
-        moreButton.Click += OnTopicMoreClicked;
-
         // Label row (topic name + pause glyph), optionally stacked over a muted
-        // server-name subtitle (Subtitle rail mode).
+        // server-name subtitle (when server labels are shown).
         var labelRow = new StackPanel { Orientation = Orientation.Horizontal };
         labelRow.Children.Add(label);
         labelRow.Children.Add(pauseGlyph);
-        
+
         var textStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
@@ -328,27 +314,17 @@ public partial class MainWindow : FluentWindow
             });
         }
 
-        var leftPart = new StackPanel { Orientation = Orientation.Horizontal };
-        leftPart.Children.Add(pip);
-        leftPart.Children.Add(textStack);
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(pip);
+        content.Children.Add(textStack);
 
-        // MinWidth is the workaround for WPF-UI's NavigationViewItem template:
-        // its inner ContentPresenter doesn't horizontally stretch to fill the
-        // rail's column, so a docked-right child otherwise hugs the label.
-        // OpenPaneLength is 250; minus the rail's icon column and padding,
-        // ~200 reliably pushes the more-button to the rail's right edge.
-        var content = new DockPanel
-        {
-            LastChildFill = true,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinWidth = 200,
-        };
-        
-        DockPanel.SetDock(moreButton, Dock.Right);
-        content.Children.Add(moreButton);
-        content.Children.Add(leftPart);
-        
         var icon = new SymbolIcon { Symbol = SymbolRegular.Tag24 };
+
+        // Topic actions live on a right-click menu, rebuilt each time it opens so its
+        // labels (Pause/Resume, Enable/Disable, move-edge enablement) reflect current
+        // state. Each item carrying its own menu also stops a right-click inside a
+        // folder from bubbling up to the folder's (group) menu.
+        var contextMenu = new ContextMenu();
 
         var item = new NavigationViewItem
         {
@@ -357,10 +333,11 @@ public partial class MainWindow : FluentWindow
             Tag = topic.Id,
             TargetPageType = typeof(FeedPage),
             Icon = icon,
-            // Stretch content so the right-docked more-button reaches the
-            // rail's right edge instead of sitting next to the label.
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            ContextMenu = contextMenu,
         };
+        // ContextMenuOpening fires before the menu is shown, so populating here sizes
+        // it correctly on the first open.
+        item.ContextMenuOpening += (_, _) => PopulateTopicContextMenu(contextMenu, topic.Id);
 
         return new RailItem(item, pip, pauseGlyph, new IconBadge(icon));
     }
@@ -476,28 +453,15 @@ public partial class MainWindow : FluentWindow
         return false;
     }
 
-    // ===== Topic three-dot menu =====
+    // ===== Topic right-click menu =====
     //
-    // Built lazily each time the user clicks so labels reflect current state
-    // (Pause vs Resume, Enable vs Disable) without needing extra subscriptions.
-    private void OnTopicMoreClicked(object sender, RoutedEventArgs e)
+    // Repopulated each time it opens so labels reflect current state (Pause vs
+    // Resume, Enable vs Disable, move-edge enablement) without extra subscriptions.
+    private void PopulateTopicContextMenu(ContextMenu menu, Guid topicId)
     {
-        e.Handled = true;
-        if (sender is not System.Windows.Controls.Button btn || btn.Tag is not Guid topicId) return;
-
-        var menu = BuildTopicContextMenu(topicId);
-        if (menu.Items.Count == 0) return;
-
-        menu.PlacementTarget = btn;
-        menu.Placement = PlacementMode.Bottom;
-        menu.IsOpen = true;
-    }
-
-    private ContextMenu BuildTopicContextMenu(Guid topicId)
-    {
-        var menu = new ContextMenu();
+        menu.Items.Clear();
         var topic = _settings.GetTopicById(topicId);
-        if (topic is null) return menu;
+        if (topic is null) return;
 
         var isTopicSpecificallyPaused = _gate.IsTopicSpecificallyPaused(topicId);
         var isEnabled = topic.Enabled;
@@ -567,6 +531,24 @@ public partial class MainWindow : FluentWindow
             }
         };
 
+        var moveUp = new System.Windows.Controls.MenuItem
+        {
+            Header = "Move up",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowUp24, FontSize = 14 },
+            IsEnabled = _topicsVm.CanMoveTopic(topic, -1),
+        };
+        moveUp.Click += (_, _) => _topicsVm.MoveTopic(topic, -1);
+
+        var moveDown = new System.Windows.Controls.MenuItem
+        {
+            Header = "Move down",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowDown24, FontSize = 14 },
+            IsEnabled = _topicsVm.CanMoveTopic(topic, +1),
+        };
+        moveDown.Click += (_, _) => _topicsVm.MoveTopic(topic, +1);
+
+        var moveToGroup = BuildMoveToGroupMenu(topic);
+
         var removeItem = new System.Windows.Controls.MenuItem
         {
             Header = "Remove",
@@ -580,8 +562,76 @@ public partial class MainWindow : FluentWindow
         menu.Items.Add(new Separator());
         menu.Items.Add(editItem);
         menu.Items.Add(new Separator());
+        menu.Items.Add(moveUp);
+        menu.Items.Add(moveDown);
+        if (moveToGroup is not null) menu.Items.Add(moveToGroup);
+        menu.Items.Add(new Separator());
         menu.Items.Add(removeItem);
+    }
 
+    // "Move to group ▸" submenu: existing groups + Ungrouped. New groups are created
+    // via the editor dialog's group combo, not here. Returns null when there's
+    // nothing to offer (no groups and the topic is already ungrouped).
+    private System.Windows.Controls.MenuItem? BuildMoveToGroupMenu(TopicSettings topic)
+    {
+        var groups = _topicsVm.OrderedGroups();
+        var current = topic.GroupName?.Trim() ?? string.Empty;
+        if (groups.Count == 0 && current.Length == 0) return null;
+
+        var root = new System.Windows.Controls.MenuItem
+        {
+            Header = "Move to group",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.FolderArrowRight24, FontSize = 14 },
+        };
+
+        foreach (var g in groups)
+        {
+            var item = new System.Windows.Controls.MenuItem
+            {
+                Header = g,
+                IsChecked = string.Equals(g, current, StringComparison.Ordinal),
+            };
+            var target = g;
+            item.Click += (_, _) => _topicsVm.MoveTopicToGroup(topic, target);
+            root.Items.Add(item);
+        }
+
+        if (groups.Count > 0) root.Items.Add(new Separator());
+
+        var ungrouped = new System.Windows.Controls.MenuItem
+        {
+            Header = "Ungrouped",
+            IsChecked = current.Length == 0,
+        };
+        ungrouped.Click += (_, _) => _topicsVm.MoveTopicToGroup(topic, null);
+        root.Items.Add(ungrouped);
+
+        return root;
+    }
+
+    // Right-click menu on a group folder: reorder it among the other folders.
+    private ContextMenu BuildGroupContextMenu(string groupName)
+    {
+        var menu = new ContextMenu();
+
+        var up = new System.Windows.Controls.MenuItem
+        {
+            Header = "Move up",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowUp24, FontSize = 14 },
+            IsEnabled = _topicsVm.CanMoveGroup(groupName, -1),
+        };
+        up.Click += (_, _) => _topicsVm.MoveGroup(groupName, -1);
+
+        var down = new System.Windows.Controls.MenuItem
+        {
+            Header = "Move down",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowDown24, FontSize = 14 },
+            IsEnabled = _topicsVm.CanMoveGroup(groupName, +1),
+        };
+        down.Click += (_, _) => _topicsVm.MoveGroup(groupName, +1);
+
+        menu.Items.Add(up);
+        menu.Items.Add(down);
         return menu;
     }
 

@@ -107,6 +107,26 @@ public class AppSettings
             changed = true;
         }
 
+        // Seed manual ordering once. The rail used to render alphabetically; the
+        // Topics list order (and GroupOrder) is now the source of truth, so sort the
+        // list alphabetically the first time to match what the user already sees —
+        // after that, order is whatever the user arranges.
+        if (!OrderInitialized)
+        {
+            Topics = Topics
+                .OrderBy(t => t.EffectiveDisplayName, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            GroupOrder = Topics
+                .Select(t => t.GroupName?.Trim())
+                .Where(g => !string.IsNullOrEmpty(g))
+                .Select(g => g!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            OrderInitialized = true;
+            changed = true;
+        }
+
         return changed;
     }
 
@@ -150,6 +170,14 @@ public class AppSettings
     /// <summary>Group names whose rail folder is collapsed. Persisted so the
     /// expand/collapse state survives restarts.</summary>
     public List<string> CollapsedGroups { get; set; } = new();
+
+    /// <summary>User-defined display order of group folders in the rail. Groups not
+    /// listed here fall back to alphabetical after the listed ones.</summary>
+    public List<string> GroupOrder { get; set; } = new();
+
+    /// <summary>Set once the manual ordering seed (alphabetical) has run, so it
+    /// doesn't re-sort and clobber the user's arrangement on later launches.</summary>
+    public bool OrderInitialized { get; set; }
 
     // Legacy rail-display enum, retained only so older settings.json deserialize and
     // migrate into ShowServerLabel (see Migrate). Nullable + ignored-when-null so it
