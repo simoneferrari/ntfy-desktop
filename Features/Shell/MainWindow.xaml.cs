@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using NtfyDesktop.Features.Connections;
@@ -10,11 +11,11 @@ using NtfyDesktop.Features.Notifications;
 using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Topics;
 using NtfyDesktop.Features.Topics.Dialogs;
+using NtfyDesktop.Features.Unread;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 using FeedViewModel = NtfyDesktop.Features.Feed.FeedViewModel;
 using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
 using NavigationViewItem = Wpf.Ui.Controls.NavigationViewItem;
 using SettingsViewModel = NtfyDesktop.Features.Settings.SettingsViewModel;
 using SymbolIcon = Wpf.Ui.Controls.SymbolIcon;
@@ -27,6 +28,7 @@ public partial class MainWindow : FluentWindow
     private static readonly Brush PipConnectingBrush   = Frozen(Color.FromRgb(0xEA, 0x58, 0x0C));
     private static readonly Brush PipDisconnectedBrush = Frozen(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush PausedGlyphBrush     = Frozen(Color.FromRgb(0x9C, 0xA3, 0xAF));
+    private static readonly Brush BadgeBrush           = Frozen(Color.FromRgb(0x00, 0x67, 0xC0));
 
     private static SolidColorBrush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 
@@ -36,9 +38,11 @@ public partial class MainWindow : FluentWindow
     private readonly FeedViewModel _feedVm;
     private readonly SettingsViewModel _settingsVm;
     private readonly TopicsViewModel _topicsVm;
+    private readonly UnreadTracker _unread;
     private readonly Dictionary<Guid, RailItem> _railItems = new();
+    private IconBadge? _allTopicsBadge;
 
-    private sealed record RailItem(NavigationViewItem Item, Ellipse Pip, SymbolIcon PauseGlyph);
+    private sealed record RailItem(NavigationViewItem Item, Ellipse Pip, SymbolIcon PauseGlyph, IconBadge Badge);
 
     // Last page type the user landed on; updated by the Navigated event.
     private Type? _currentPageType;
@@ -56,6 +60,7 @@ public partial class MainWindow : FluentWindow
         FeedViewModel feedVm,
         SettingsViewModel settingsVm,
         TopicsViewModel topicsVm,
+        UnreadTracker unread,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -69,6 +74,7 @@ public partial class MainWindow : FluentWindow
         _feedVm = feedVm;
         _settingsVm = settingsVm;
         _topicsVm = topicsVm;
+        _unread = unread;
 
         RootNavigation.SetServiceProvider(services);
 
@@ -87,6 +93,13 @@ public partial class MainWindow : FluentWindow
         // Rebuild the rail when the user changes the server-label display mode.
         _settingsVm.RailServerDisplayChangedOnSave += (_, _) => Dispatcher.Invoke(RebuildTopicItems);
 
+        // Unread badges follow the tracker. Window focus drives "viewing" state:
+        // regaining focus marks the current feed read (catches messages that
+        // arrived while minimized to the tray).
+        _unread.Changed += (_, _) => Dispatcher.Invoke(RefreshBadges);
+        Activated   += (_, _) => _unread.SetWindowActive(true);
+        Deactivated += (_, _) => _unread.SetWindowActive(false);
+
         // Navigation guard for the Settings page (prompt on unsaved changes).
         RootNavigation.Navigating += OnNavigationViewNavigating;
         RootNavigation.Navigated  += OnNavigationViewNavigated;
@@ -98,9 +111,12 @@ public partial class MainWindow : FluentWindow
     {
         Loaded -= OnFirstLoaded;
 
+        _allTopicsBadge = new IconBadge(AllTopicsIcon);
+
         RebuildTopicItems();
         // Navigating to FeedPage marks AllTopicsItem (TargetPageType=FeedPage) as active.
         RootNavigation.Navigate(typeof(FeedPage));
+        RefreshBadges();
     }
 
     private void OnTopicsChanged(object? sender, EventArgs e) =>
@@ -125,9 +141,13 @@ public partial class MainWindow : FluentWindow
 
         for (var i = separatorIdx - 1; i > anchorIdx; i--)
             menu.RemoveAt(i);
+
         _railItems.Clear();
 
-        var topics = _settings.Topics;
+        var topics = _settings.Topics
+            .OrderBy(t => t.DisplayName ?? t.Name)
+            .ToList();
+        
         if (topics.Count == 0)
         {
             TopicsSeparator.Visibility = Visibility.Collapsed;
@@ -153,10 +173,14 @@ public partial class MainWindow : FluentWindow
         {
             foreach (var server in _settings.Servers)
             {
-                var serverTopics = topics.Where(t => t.ServerId == server.Id).ToList();
+                var serverTopics = topics
+                    .Where(t => t.ServerId == server.Id)
+                    .ToList();
+
                 if (serverTopics.Count == 0) continue;
 
-                menu.Insert(insertAt++, new Wpf.Ui.Controls.NavigationViewItemHeader { Text = server.DisplayLabel });
+                menu.Insert(insertAt++, new NavigationViewItemHeader { Text = server.DisplayLabel });
+
                 foreach (var t in serverTopics)
                     InsertTopic(t, subtitle: null);
             }
@@ -173,6 +197,16 @@ public partial class MainWindow : FluentWindow
         }
 
         RefreshTopicAdornments();
+        RefreshBadges();
+    }
+
+    // Pushes current unread counts onto the rail badges. Cheap (in-memory counts);
+    // safe to call after any rebuild or on every tracker change.
+    private void RefreshBadges()
+    {
+        _allTopicsBadge?.Set(_unread.Total);
+        foreach (var (id, rail) in _railItems)
+            rail.Badge.Set(_unread.CountFor(id));
     }
 
     private RailItem BuildTopicNavItem(TopicSettings topic, string? serverSubtitle)
@@ -185,11 +219,13 @@ public partial class MainWindow : FluentWindow
             VerticalAlignment = VerticalAlignment.Center,
             Fill = PipDisconnectedBrush,
         };
+        
         var label = new System.Windows.Controls.TextBlock
         {
             Text = topic.EffectiveDisplayName,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        
         // Pause glyph: appears after the label when the topic is effectively
         // paused (global or per-topic). Filled variant renders sharper at this
         // small size than the regular outline.
@@ -221,7 +257,7 @@ public partial class MainWindow : FluentWindow
         var labelRow = new StackPanel { Orientation = Orientation.Horizontal };
         labelRow.Children.Add(label);
         labelRow.Children.Add(pauseGlyph);
-
+        
         var textStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
@@ -246,18 +282,20 @@ public partial class MainWindow : FluentWindow
         // MinWidth is the workaround for WPF-UI's NavigationViewItem template:
         // its inner ContentPresenter doesn't horizontally stretch to fill the
         // rail's column, so a docked-right child otherwise hugs the label.
-        // OpenPaneLength is 220; minus the rail's icon column and padding,
-        // ~160 reliably pushes the more-button to the rail's right edge.
+        // OpenPaneLength is 250; minus the rail's icon column and padding,
+        // ~200 reliably pushes the more-button to the rail's right edge.
         var content = new DockPanel
         {
             LastChildFill = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinWidth = 160,
+            MinWidth = 200,
         };
         
         DockPanel.SetDock(moreButton, Dock.Right);
         content.Children.Add(moreButton);
         content.Children.Add(leftPart);
+        
+        var icon = new SymbolIcon { Symbol = SymbolRegular.Tag24 };
 
         var item = new NavigationViewItem
         {
@@ -265,13 +303,13 @@ public partial class MainWindow : FluentWindow
             // Tag (TopicId) drives _feedVm.CurrentTopicId in OnNavigationSelectionChanged.
             Tag = topic.Id,
             TargetPageType = typeof(FeedPage),
-            Icon = new SymbolIcon { Symbol = SymbolRegular.Tag24 },
+            Icon = icon,
             // Stretch content so the right-docked more-button reaches the
             // rail's right edge instead of sitting next to the label.
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
 
-        return new RailItem(item, pip, pauseGlyph);
+        return new RailItem(item, pip, pauseGlyph, new IconBadge(icon));
     }
 
     private static void ApplyEnabledStyling(NavigationViewItem item, bool enabled)
@@ -309,10 +347,20 @@ public partial class MainWindow : FluentWindow
     private void OnNavigationSelectionChanged(NavigationView sender, RoutedEventArgs args)
     {
         if (sender.SelectedItem is not NavigationViewItem item) return;
-        if (item.TargetPageType != typeof(FeedPage)) return;
+
+        // Leaving the feed for Settings / Connections: no feed is on screen, so
+        // arrivals from here on should count as unread.
+        if (item.TargetPageType != typeof(FeedPage))
+        {
+            _unread.SetActiveView(ActiveView.None);
+            return;
+        }
 
         // Topic items carry their TopicId as Tag; "All topics" carries "" (string).
-        _feedVm.CurrentTopicId = item.Tag is Guid id ? id : null;
+        var topicId = item.Tag is Guid id ? (Guid?)id : null;
+        _feedVm.CurrentTopicId = topicId;
+        // Navigating to a feed is an explicit "I'm looking at this" — mark it read.
+        _unread.SetActiveView(topicId is { } gid ? ActiveView.Topic(gid) : ActiveView.AllTopics);
     }
 
     // ===== Add topic action =====
@@ -495,7 +543,9 @@ public partial class MainWindow : FluentWindow
         // the feed content to the requested topic. The rail won't visually highlight
         // the per-topic item — WPF-UI's NavigationView.SelectedItem setter isn't
         // public so we can't fix that without poking template internals.
-        _feedVm.CurrentTopicId = _railItems.ContainsKey(topicId) ? topicId : null;
+        var resolved = _railItems.ContainsKey(topicId) ? (Guid?)topicId : null;
+        _feedVm.CurrentTopicId = resolved;
+        _unread.SetActiveView(resolved is { } id ? ActiveView.Topic(id) : ActiveView.AllTopics);
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -574,5 +624,128 @@ public partial class MainWindow : FluentWindow
         // (the setter on NavigationView.SelectedItem isn't public). NavigationView
         // updates the rail's visual selection as a side effect of Navigate.
         NavigateBypassingGuard(typeof(SettingsPage));
+    }
+
+    // ===== Unread badge =====
+    //
+    // A small count bubble overlaid on a rail item's icon. Implemented as an
+    // adorner so it sits on top of the icon without disturbing the rail's layout
+    // or the WPF-UI NavigationViewItem template (whose Icon slot only accepts an
+    // IconElement, so we can't wrap it in a Grid).
+
+    // Binds a badge adorner to an icon's lifetime. The adorner layer only exists
+    // once the icon is in the visual tree, so attachment is deferred to Loaded;
+    // Unloaded (e.g. when RebuildTopicItems drops the item) detaches it.
+    private sealed class IconBadge
+    {
+        private readonly FrameworkElement _icon;
+        private BadgeAdorner? _adorner;
+        private int _count;
+
+        public IconBadge(FrameworkElement icon)
+        {
+            _icon = icon;
+            if (icon.IsLoaded) TryAttach();
+            icon.Loaded += (_, _) => TryAttach();
+            icon.Unloaded += (_, _) => Detach();
+        }
+
+        public void Set(int count)
+        {
+            _count = count;
+            _adorner?.Update(count);
+        }
+
+        private void TryAttach()
+        {
+            if (_adorner is not null) return;
+            var layer = AdornerLayer.GetAdornerLayer(_icon);
+            if (layer is null) return; // no adorner layer yet — Loaded will retry
+            _adorner = new BadgeAdorner(_icon);
+            layer.Add(_adorner);
+            _adorner.Update(_count);
+        }
+
+        private void Detach()
+        {
+            if (_adorner is null) return;
+            AdornerLayer.GetAdornerLayer(_icon)?.Remove(_adorner);
+            _adorner = null;
+        }
+    }
+
+    private sealed class BadgeAdorner : Adorner
+    {
+        private readonly VisualCollection _children;
+        private readonly Border _badge;
+        private readonly System.Windows.Controls.TextBlock _text;
+
+        public BadgeAdorner(UIElement adornedElement) : base(adornedElement)
+        {
+            // Create the collection first: VisualCollection.Add wires the badge into
+            // the visual tree, which makes WPF query VisualChildrenCount immediately.
+            // VisualChildrenCount is also null-guarded below as belt-and-suspenders.
+            _children = new VisualCollection(this);
+
+            IsHitTestVisible = false;
+
+            _text = new System.Windows.Controls.TextBlock
+            {
+                Foreground = Brushes.White,
+                FontSize = 9,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            TextOptions.SetTextFormattingMode(_text, TextFormattingMode.Display);
+
+            _badge = new Border
+            {
+                Background = BadgeBrush,
+                CornerRadius = new CornerRadius(7),
+                MinWidth = 14,
+                Height = 14,
+                Padding = new Thickness(3, 0, 3, 0),
+                SnapsToDevicePixels = true,
+                Visibility = Visibility.Collapsed,
+                Child = _text,
+            };
+
+            _children.Add(_badge);
+        }
+
+        public void Update(int count)
+        {
+            if (count <= 0)
+            {
+                _badge.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                _text.Text = count > 99 ? "99+" : count.ToString();
+                _badge.Visibility = Visibility.Visible;
+            }
+            InvalidateMeasure();
+            InvalidateArrange();
+        }
+
+        protected override int VisualChildrenCount => _children?.Count ?? 0;
+        protected override Visual GetVisualChild(int index) => _children[index];
+
+        protected override Size MeasureOverride(Size constraint)
+        {
+            _badge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return AdornedElement.RenderSize;
+        }
+
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            var size = _badge.DesiredSize;
+            // Top-right corner of the icon, overhanging slightly up and to the right.
+            var x = finalSize.Width - size.Width + 5;
+            var y = -5;
+            _badge.Arrange(new Rect(new Point(x, y), size));
+            return finalSize;
+        }
     }
 }

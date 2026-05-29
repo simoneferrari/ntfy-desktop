@@ -59,6 +59,9 @@
         </Style>
     </ui:FluentWindow.Resources>
 
+    <!-- AdornerDecorator guarantees an adorner layer for the rail's unread-count
+         badges (which overlay each nav item's icon via an adorner). -->
+    <AdornerDecorator>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -144,7 +147,7 @@
                            IsBackButtonVisible="Collapsed"
                            IsPaneToggleVisible="False"
                            PaneDisplayMode="Left"
-                           OpenPaneLength="220"
+                           OpenPaneLength="250"
                            Transition="None"
                            TransitionDuration="0"
                            SelectionChanged="OnNavigationSelectionChanged">
@@ -154,13 +157,14 @@
                                        TargetPageType="{x:Type feed:FeedPage}"
                                        Tag="">
                     <ui:NavigationViewItem.Icon>
-                        <ui:SymbolIcon Symbol="Mail24" />
+                        <ui:SymbolIcon x:Name="AllTopicsIcon" Symbol="Mail24" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
                 <!-- "Add topic" action item. No TargetPageType — Click handler
                      opens the editor dialog and restores the prior selection. -->
                 <ui:NavigationViewItem x:Name="AddTopicItem"
                                        Content="Add topic"
+                                       HorizontalContentAlignment="Right"
                                        Click="OnAddTopicNavClicked">
                     <ui:NavigationViewItem.Icon>
                         <ui:SymbolIcon Symbol="Add24" />
@@ -185,4 +189,5 @@
             </ui:NavigationView.FooterMenuItems>
         </ui:NavigationView>
     </Grid>
+    </AdornerDecorator>
 </ui:FluentWindow>
