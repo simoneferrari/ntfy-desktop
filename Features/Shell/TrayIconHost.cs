@@ -23,6 +23,7 @@ internal sealed class TrayIconHost : IDisposable
 
     private ConnectionStatus _lastConnection = ConnectionStatus.Disconnected;
     private NotificationStatus _lastNotifications = NotificationStatus.Active;
+    private int _lastUnread;
 
     public TrayIconHost(App app)
     {
@@ -56,6 +57,13 @@ internal sealed class TrayIconHost : IDisposable
         Render();
     }
 
+    public void SetUnreadCount(int count)
+    {
+        if (count == _lastUnread) return; // avoid rebuilding the icon on no-op updates
+        _lastUnread = count;
+        Render();
+    }
+
     private void Render()
     {
         var (file, connectionWord) = _lastConnection switch
@@ -72,9 +80,10 @@ internal sealed class TrayIconHost : IDisposable
         _activeIcon?.Dispose();
         _activeIcon = fresh;
 
+        var unreadWord = _lastUnread > 0 ? $", {_lastUnread} unread" : string.Empty;
         _icon.ToolTipText = _lastNotifications == NotificationStatus.Paused
-            ? $"{App.NAME} — {connectionWord}, notifications paused"
-            : $"{App.NAME} — {connectionWord}";
+            ? $"{App.NAME} — {connectionWord}, notifications paused{unreadWord}"
+            : $"{App.NAME} — {connectionWord}{unreadWord}";
 
         _pauseItem.Header = _lastNotifications == NotificationStatus.Paused
             ? "Resume notifications"

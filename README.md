@@ -53,7 +53,7 @@ A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics acr
 - Bearer tokens are never sent over plain `ws://` / `http://`
 
 **Application**
-- System tray with colour-coded connection status (green / amber / red)
+- System tray with colour-coded connection status (green / amber / red); unread count shown in the tooltip
 - Fluent design (WPF-UI) that follows the system light/dark theme
 - Single-instance; runs in the background after the window is closed
 - Optional custom data directory via `--data-path` (useful for portable use or multiple profiles)
@@ -73,9 +73,9 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Server management UI
 - [x] Per-topic display names (friendly labels)
 
-**0.4 — Topic groups & tray badge**
+**0.4 — Topic groups & tray unread count**
 - [x] Topic groups/folders (collapsible groups in the nav rail, with manual ordering and drag-and-drop)
-- [ ] Tray badge count (unread total on the tray icon)
+- [x] Unread count in the tray tooltip (unread total on the tray icon)
 
 **0.5 — Richer messages**
 - [ ] Action buttons (`view` / `http` / `broadcast`)

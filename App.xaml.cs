@@ -8,6 +8,7 @@ using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.Feed;
 using NtfyDesktop.Features.Notifications;
 using NtfyDesktop.Features.Shell;
+using NtfyDesktop.Features.Unread;
 using Wpf.Ui.Appearance;
 using FeedViewModel = NtfyDesktop.Features.Feed.FeedViewModel;
 
@@ -127,13 +128,18 @@ public partial class App : Application
         var conn = _host.Services.GetRequiredService<ConnectionManager>();
         var gate = _host.Services.GetRequiredService<NotificationGate>();
 
+        var unread = _host.Services.GetRequiredService<UnreadTracker>();
+
         _trayIcon.SetConnectionStatus(conn.GetConnectionStatus());
         _trayIcon.SetNotificationStatus(gate.GlobalStatus);
+        _trayIcon.SetUnreadCount(unread.Total);
 
         conn.ConnectionStatusChanged += (_, _) =>
             Dispatcher.Invoke(() => _trayIcon?.SetConnectionStatus(conn.GetConnectionStatus()));
         gate.GlobalStatusChanged += (_, _) =>
             Dispatcher.Invoke(() => _trayIcon?.SetNotificationStatus(gate.GlobalStatus));
+        unread.Changed += (_, _) =>
+            Dispatcher.Invoke(() => _trayIcon?.SetUnreadCount(unread.Total));
 
         // Cold-start activation: if launched directly by a toast click (no prior
         // instance), now that the host is up we can dispatch the URL.

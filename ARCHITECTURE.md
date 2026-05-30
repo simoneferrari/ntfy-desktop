@@ -97,7 +97,7 @@ Ordering is manual: the `AppSettings.Topics` list order is the source of truth f
 
 `RebuildTopicItems` lays out the dynamic topic items by `TopicSettings.GroupName`: ungrouped topics first at the top level, then one collapsible folder per group (a non-navigating `NavigationViewItem` with the group's topics as child `MenuItems`). Folders carry an aggregate unread badge and persist their expand/collapse state in `AppSettings.CollapsedGroups` (watched via a `DependencyPropertyDescriptor` on `IsExpanded`, detached on `Unloaded`). With zero groups this is just a flat alphabetical list. Which server a topic is on is shown only as a subtitle, gated by `AppSettings.ShowServerLabel` (the old by-server *grouping* was replaced by user groups; the legacy `RailServerDisplay` enum survives only to migrate into `ShowServerLabel`).
 
-`TrayIconHost` drives the tray icon colour from `ConnectionStatus` only. The tooltip composes both axes ("connected, notifications paused").
+`TrayIconHost` drives the tray icon colour from `ConnectionStatus` only. The tooltip composes all three axes ("connected, notifications paused, N unread") — the unread total comes from `UnreadTracker.Total`. (An on-icon count badge was tried but dropped: illegible at the tray's effective 16px size.)
 
 ## Event flow
 
