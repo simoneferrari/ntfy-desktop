@@ -129,6 +129,12 @@ public partial class MainWindow
         Activated   += (_, _) => _unread.SetWindowActive(true);
         Deactivated += (_, _) => _unread.SetWindowActive(false);
 
+        // Right-click "All topics" → Mark all read. Populated on open so it can disable
+        // itself when there's nothing unread.
+        var allTopicsMenu = new ContextMenu();
+        AllTopicsItem.ContextMenu = allTopicsMenu;
+        AllTopicsItem.ContextMenuOpening += (_, _) => PopulateAllTopicsContextMenu(allTopicsMenu);
+
         // Navigation guard for the Settings page (prompt on unsaved changes).
         RootNavigation.Navigating += OnNavigationViewNavigating;
         RootNavigation.Navigated  += OnNavigationViewNavigated;
@@ -680,6 +686,20 @@ public partial class MainWindow
     //
     // Repopulated each time it opens so labels reflect current state (Pause vs
     // Resume, Enable vs Disable, move-edge enablement) without extra subscriptions.
+    private void PopulateAllTopicsContextMenu(ContextMenu menu)
+    {
+        menu.Items.Clear();
+
+        var markAllRead = new System.Windows.Controls.MenuItem
+        {
+            Header = "Mark all read",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.Checkmark24, FontSize = 14 },
+            IsEnabled = _unread.Total > 0,
+        };
+        markAllRead.Click += (_, _) => _unread.MarkAllRead();
+        menu.Items.Add(markAllRead);
+    }
+
     private void PopulateTopicContextMenu(ContextMenu menu, Guid topicId)
     {
         menu.Items.Clear();
@@ -735,6 +755,15 @@ public partial class MainWindow
         };
         enableItem.Click += async (_, _) => _topics.ToggleEnabled(topic);
 
+        // Mark this topic's messages read. Disabled when it has no unread.
+        var markReadItem = new System.Windows.Controls.MenuItem
+        {
+            Header = "Mark as read",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.Checkmark24, FontSize = 14 },
+            IsEnabled = _unread.CountFor(topicId) > 0,
+        };
+        markReadItem.Click += (_, _) => _unread.MarkTopicRead(topicId);
+
         var editItem = new System.Windows.Controls.MenuItem
         {
             Header = "Edit",
@@ -783,6 +812,7 @@ public partial class MainWindow
         menu.Items.Add(reconnectItem);
         menu.Items.Add(enableItem);
         menu.Items.Add(new Separator());
+        menu.Items.Add(markReadItem);
         menu.Items.Add(editItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(moveUp);

@@ -226,12 +226,17 @@ public sealed class ConnectionManager : IAsyncDisposable
         var server = _settings.GetServer(topic.ServerId);
         if (server is null) return; // orphaned topic (server removed) — skip silently
 
+        // Prime a baseline so this topic is never cursorless on a future reconnect (which
+        // would skip catch-up). No-ops if it already has a cursor — never rewinds.
+        _history.EnsureCursor(topic.Id, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
         var conn = new TopicConnection(
             topic.Id,
             topic.Name,
             topic.ServerId,
             () => server.Url,
-            server.GetAccessToken);
+            server.GetAccessToken,
+            () => _history.GetSinceValue(topic.Id));
 
         conn.MessageReceived += OnMessageReceived;
         conn.StateChanged += OnTopicConnectionStatusChanged;
@@ -265,16 +270,22 @@ public sealed class ConnectionManager : IAsyncDisposable
         _ = new TopicConnectionStatusChanged(conn.TopicId, conn.Status, conn.LastError).PublishAsync();
     }
 
-    private void OnMessageReceived(object? sender, NtfyMessage message)
+    private void OnMessageReceived(object? sender, IncomingMessage incoming)
     {
         if (sender is not TopicConnection conn) return;
 
         var topic = _settings.GetTopicById(conn.TopicId);
         var serverId = topic?.ServerId ?? Guid.Empty;
 
-        _history.Insert(message, conn.TopicId, serverId);
+        // Insert is INSERT-OR-IGNORE and reports novelty. A `since=<time>` catch-up is
+        // inclusive of its boundary, so it re-delivers messages we already have — those
+        // aren't new and must not reach the toast/summary path (the only consumer of
+        // NtfyMessageReceived), or every reconnect would show a phantom "while you were
+        // away" summary for the re-sent boundary message.
+        var isNew = _history.Insert(incoming.Message, conn.TopicId, serverId);
+        if (!isNew) return;
 
-        new NtfyMessageReceived(message, conn.TopicId).PublishAsync();
+        new NtfyMessageReceived(incoming.Message, conn.TopicId, incoming.IsBackfill).PublishAsync();
     }
 
     // Resume the connections regardless of notification-pause state — sockets

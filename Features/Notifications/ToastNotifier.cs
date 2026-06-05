@@ -64,6 +64,60 @@ public class ToastNotifier
         catch { /* toast delivery failure is non-fatal */ }
     }
 
+    /// <summary>
+    /// One "N messages while you were away" toast summarising backfilled catch-up messages
+    /// (see <see cref="BackfillSummaryNotifier"/>), rather than one toast per missed message.
+    /// Clicking it opens the single topic, or the combined feed when several topics are involved.
+    /// </summary>
+    public void ShowBackfillSummary(int total, IReadOnlyList<(string Label, int Count)> topics, Guid clickTopicId)
+    {
+        if (_notifier == null || total <= 0) return;
+
+        try
+        {
+            var (title, body) = FormatSummary(total, topics);
+            var launchUrl = BuildAppActivationUrl(clickTopicId);
+
+            var doc = new XmlDocument();
+            doc.LoadXml($"""
+                <toast activationType="protocol" launch="{EscapeXml(launchUrl)}">
+                  <visual>
+                    <binding template="ToastGeneric">
+                      <text>{EscapeXml(title)}</text>
+                      <text>{EscapeXml(body)}</text>
+                    </binding>
+                  </visual>
+                </toast>
+                """);
+
+            var toast = new ToastNotification(doc)
+            {
+                // Fixed group/tag so a newer catch-up wave replaces the previous summary
+                // rather than stacking another bubble.
+                Group = "ntfy-desktop-summary",
+                Tag = "backfill-summary",
+            };
+
+            _notifier.Show(toast);
+        }
+        catch { /* toast delivery failure is non-fatal */ }
+    }
+
+    private static (string Title, string Body) FormatSummary(int total, IReadOnlyList<(string Label, int Count)> topics)
+    {
+        var title = $"{total} {(total == 1 ? "message" : "messages")} while you were away";
+
+        if (topics.Count == 1)
+            return (title, $"in {topics[0].Label}");
+
+        const int max = 4;
+        var body = string.Join(", ", topics.Take(max).Select(t => $"{t.Label} ({t.Count})"));
+        if (topics.Count > max)
+            body += $", +{topics.Count - max} more";
+
+        return (title, body);
+    }
+
     private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority, string? clickUrl, Guid topicId)
     {
         // Urgent: persistent toast + alarm sound until dismissed

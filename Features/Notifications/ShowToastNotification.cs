@@ -15,7 +15,8 @@ namespace NtfyDesktop.Features.Notifications;
 public class ShowToastNotification(
     AppSettings settings,
     NotificationGate gate,
-    ToastNotifier toaster) : IEventHandler<NtfyMessageReceived>
+    ToastNotifier toaster,
+    BackfillSummaryNotifier summary) : IEventHandler<NtfyMessageReceived>
 {
     private ActiveHours ResolveActiveHours(TopicSettings? topicSettings)
     {
@@ -49,7 +50,18 @@ public class ShowToastNotification(
     {
         var message = eventModel.Message;
 
-        if (!DropMessage(message, eventModel.TopicId))
+        // Same gate for live and backfilled messages: pause, below-min-priority and
+        // outside-active-hours all mean "don't notify". A gated message is neither
+        // toasted nor counted in the catch-up summary.
+        if (DropMessage(message, eventModel.TopicId))
+            return Task.CompletedTask;
+
+        // Backfilled (catch-up) messages don't each pop a toast — they're coalesced into
+        // a single "N messages while you were away" summary, so a reconnect that replays
+        // a backlog doesn't spray one toast per missed message.
+        if (eventModel.IsBackfill)
+            summary.Record(eventModel.TopicId);
+        else
             toaster.Show(message, eventModel.TopicId);
 
         return Task.CompletedTask;

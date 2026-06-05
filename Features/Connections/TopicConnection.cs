@@ -6,18 +6,32 @@ using NtfyDesktop.Features.Topics;
 
 namespace NtfyDesktop.Features.Connections;
 
-public sealed class TopicConnection(Guid topicId, string topicName, Guid serverId, Func<string> getServerUrl, Func<string> getToken) : IAsyncDisposable
+// getSince returns the ntfy `since=` value for this topic — the Unix timestamp of the last
+// message we acknowledged from the server (or null when there's none). It comes from the
+// durable topic_cursor table, not from message history, so deletes/retention don't rewind
+// it. Re-read on every connect attempt so the socket resumes via ntfy's `since=` — closing
+// the gap left by an app restart or any mid-session reconnect. A timestamp (not a message
+// id) is used so a stale cursor still works: an id that's aged out of the server cache
+// makes ntfy return nothing, whereas an old timestamp just returns whatever's still cached.
+public sealed class TopicConnection(Guid topicId, string topicName, Guid serverId, Func<string> getServerUrl, Func<string> getToken, Func<string?> getSince) : IAsyncDisposable
 {
     private CancellationTokenSource _cts = new();
     private Task _runTask = Task.CompletedTask;
     private TopicConnectionStatus _status = TopicConnectionStatus.Disconnected;
+
+    // Per-attempt catch-up state, set just before each connect. _resumedSince is the
+    // `since=` cursor we subscribed with (null = none, fresh live subscription);
+    // _connectStartedUnix bounds "live" — messages older than it are server-replayed
+    // backlog, not live publishes. See ProcessRawMessage.
+    private string? _resumedSince;
+    private long _connectStartedUnix;
 
     public Guid TopicId => topicId;
     public string TopicName => topicName;
     public TopicConnectionStatus Status => _status;
     public string? LastError { get; private set; }
 
-    public event EventHandler<NtfyMessage>? MessageReceived;
+    public event EventHandler<IncomingMessage>? MessageReceived;
     public event EventHandler<TopicConnectionStatus>? StateChanged;
 
     private static readonly TimeSpan[] _backoffDelays =
@@ -69,7 +83,13 @@ public sealed class TopicConnection(Guid topicId, string topicName, Guid serverI
             {
                 using var ws = new ClientWebSocket();
 
-                var uri = BuildWebSocketUri();
+                // Resume from our last acknowledged message (re-read each attempt).
+                // Capture the attempt start just before connecting: any replayed message
+                // timestamped before this instant is backlog, not a live publish.
+                _resumedSince = getSince();
+                _connectStartedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                var uri = BuildWebSocketUri(_resumedSince);
                 var isSecure = uri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase);
                 var token = getToken();
 
@@ -139,13 +159,20 @@ public sealed class TopicConnection(Guid topicId, string topicName, Guid serverI
         {
             var msg = JsonSerializer.Deserialize<NtfyMessage>(json);
             if (msg?.Event == "message")
-                MessageReceived?.Invoke(this, msg);
+            {
+                // Backlog only exists when we resumed with `since`; then anything
+                // published before this connect attempt is replayed history, not live.
+                // ntfy sends no live/replay delimiter over the socket, so we bound it by
+                // time — same approach as the ntfy web client.
+                var isBackfill = _resumedSince is not null && msg.Time < _connectStartedUnix;
+                MessageReceived?.Invoke(this, new IncomingMessage(msg, isBackfill));
+            }
             // "keepalive" and "open" events are intentionally ignored
         }
         catch { /* malformed JSON — ignore */ }
     }
 
-    private Uri BuildWebSocketUri()
+    private Uri BuildWebSocketUri(string? since)
     {
         var server = getServerUrl().TrimEnd('/');
 
@@ -153,7 +180,11 @@ public sealed class TopicConnection(Guid topicId, string topicName, Guid serverI
             .Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase)
             .Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase);
 
-        return new Uri($"{wsServer}/{topicName}/ws");
+        // With `since=<message-id>` ntfy replays cached messages after that id, then
+        // streams live on the same socket. Omitted for a topic with no history so a
+        // brand-new subscription doesn't pull the server's whole cache.
+        var query = string.IsNullOrEmpty(since) ? "" : $"?since={Uri.EscapeDataString(since)}";
+        return new Uri($"{wsServer}/{topicName}/ws{query}");
     }
 
     public async ValueTask DisposeAsync() => await StopAsync();
@@ -162,3 +193,7 @@ public sealed class TopicConnection(Guid topicId, string topicName, Guid serverI
     public bool MatchesTopicSettings(TopicSettings topic)
         => topicName == topic.Name && serverId == topic.ServerId;
 }
+
+// A message received off a topic socket. IsBackfill = replayed from the server's
+// cache via `since=` (a missed message), as opposed to a live publish.
+public sealed record IncomingMessage(NtfyMessage Message, bool IsBackfill);

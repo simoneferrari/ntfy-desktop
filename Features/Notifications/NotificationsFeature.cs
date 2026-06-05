@@ -17,6 +17,9 @@ public static class NotificationsFeature
                 return notifier;
             });
 
+            // Singleton: holds the debounced catch-up accumulator across messages
+            // (the IEventHandler that feeds it is transient).
+            services.AddSingleton<BackfillSummaryNotifier>();
         }
         
     }

@@ -3,6 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.Connections.Events;
+using NtfyDesktop.Features.History;
+using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Settings.Events;
 using NtfyDesktop.Features.Topics.Events;
 
@@ -15,14 +17,26 @@ namespace NtfyDesktop.Features.Connections;
 public sealed partial class ConnectionsViewModel : ObservableObject
 {
     private readonly ConnectionManager _connections;
+    private readonly AppSettings _settings;
+    private readonly HistoryRepository _history;
 
     public ObservableCollection<TopicConnectionRow> Rows { get; } = new();
 
     [ObservableProperty] private bool _isEmpty = true;
 
-    public ConnectionsViewModel(ConnectionManager connections, EventBus bus)
+    // Gates the dev-only "Reset catch-up" button — present in Debug builds only.
+    public bool ShowDevTools =>
+#if DEBUG
+        true;
+#else
+        false;
+#endif
+
+    public ConnectionsViewModel(ConnectionManager connections, AppSettings settings, HistoryRepository history, EventBus bus)
     {
         _connections = connections;
+        _settings = settings;
+        _history = history;
 
         // Status — high-frequency: replace just the affected row, no rebuild.
         bus.Subscribe<TopicConnectionStatusChanged>(this, OnTopicConnectionStatusChanged, ThreadOption.UIThread);
@@ -77,4 +91,16 @@ public sealed partial class ConnectionsViewModel : ObservableObject
 
     private bool CanDisconnectAll() =>
         Rows.Any(r => r.ConnectionStatus != TopicConnectionStatus.Disconnected);
+
+#if DEBUG
+    // Dev aid: rewind every configured topic's catch-up cursor to the epoch and reconnect,
+    // forcing ntfy to replay its whole cache (~12h) so catch-up can be re-tested without
+    // hand-editing the database. Hidden in Release (see ShowDevTools / button visibility).
+    [RelayCommand]
+    private async Task DevResetCatchUp()
+    {
+        _history.DevRewindCursors(_settings.Topics.Select(t => t.Id), time: 0);
+        await _connections.RestartAllAsync();
+    }
+#endif
 }

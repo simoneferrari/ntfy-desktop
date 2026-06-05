@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using Microsoft.Data.Sqlite;
 using NtfyDesktop.Core.Messaging;
@@ -64,6 +65,45 @@ public class HistoryRepository
             CREATE INDEX IF NOT EXISTS idx_unread   ON messages(topic_id) WHERE read = 0;
             """;
         idx.ExecuteNonQuery();
+
+        EnsureCursorTable(conn);
+    }
+
+    // Per-topic ntfy `since=` cursor: the last message id we've acknowledged from the
+    // server for each topic. Deliberately a SEPARATE table from `messages` so it is
+    // NOT affected by retention sweeps or user deletes — otherwise deleting/pruning a
+    // topic's newest rows would rewind the cursor and the server would replay (resurrect)
+    // those messages on the next reconnect. Advanced forward-only in Insert.
+    private static void EnsureCursorTable(SqliteConnection conn)
+    {
+        using var check = conn.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='topic_cursor'";
+        var alreadyExists = Convert.ToInt64(check.ExecuteScalar()) > 0;
+
+        using var create = conn.CreateCommand();
+        create.CommandText = """
+            CREATE TABLE IF NOT EXISTS topic_cursor (
+                topic_id    TEXT    PRIMARY KEY,
+                message_id  TEXT    NOT NULL,
+                time        INTEGER NOT NULL
+            );
+            """;
+        create.ExecuteNonQuery();
+
+        if (alreadyExists) return;
+
+        // First creation: seed each topic's cursor from its newest existing message so
+        // current installs get catch-up immediately. SQLite takes the bare message_id
+        // from the same row as MAX(timestamp). After this the cursor lives on its own.
+        using var seed = conn.CreateCommand();
+        seed.CommandText = """
+            INSERT INTO topic_cursor (topic_id, message_id, time)
+            SELECT topic_id, message_id, MAX(timestamp)
+              FROM messages
+             WHERE topic_id IS NOT NULL AND topic_id <> ''
+             GROUP BY topic_id
+            """;
+        seed.ExecuteNonQuery();
     }
 
     /// <summary>Adds the column if missing. Returns true when it was actually added.</summary>
@@ -104,7 +144,10 @@ public class HistoryRepository
         }
     }
 
-    public void Insert(NtfyMessage message, Guid topicId, Guid serverId)
+    /// <summary>Stores a received message and advances the topic's catch-up cursor.
+    /// Returns <c>true</c> only when the row was genuinely new (a <c>since=</c> catch-up
+    /// re-delivers already-stored messages — callers use this to skip re-notifying).</summary>
+    public bool Insert(NtfyMessage message, Guid topicId, Guid serverId)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
@@ -125,13 +168,108 @@ public class HistoryRepository
         cmd.Parameters.AddWithValue("@tags",
             (object?)(message.Tags?.Count > 0 ? string.Join(",", message.Tags) : null) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@click", (object?)message.Click ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        var inserted = cmd.ExecuteNonQuery() > 0; // INSERT OR IGNORE → 0 when message_id already stored
+
+        // Advance the topic's catch-up cursor (forward only). Runs even when the row was
+        // an IGNORE'd duplicate — we've still acknowledged seeing this id from the server.
+        // Independent of retention/deletes, which never touch topic_cursor.
+        AdvanceCursor(conn, topicId, message.Id, message.Time);
+
+        // Only announce genuinely-new rows. A `since=<time>` catch-up is inclusive of its
+        // boundary second, so it re-delivers already-stored messages; without this guard the
+        // feed and unread count (neither dedupes on message id) would double-count them.
+        if (!inserted) return false;
 
         var histMsg = ToHistoryMessage(message, topicId);
         _ = new MessageInserted(histMsg).PublishAsync();
 
         // Retention sweeps run on a timer in HistoryRetentionService, not per-Insert.
+        return true;
     }
+
+    /// <summary>
+    /// Establishes a baseline catch-up cursor for a topic if it doesn't have one yet, so a
+    /// topic is never cursorless on a reconnect (which would mean no <c>since=</c>, hence no
+    /// catch-up). No-ops when a cursor already exists — never rewinds. Called at subscribe
+    /// time with "now": a brand-new topic gets no backlog on its first connect, but every
+    /// gap after that is caught.
+    /// </summary>
+    public void EnsureCursor(Guid topicId, long time)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO topic_cursor (topic_id, message_id, time)
+            VALUES (@id, '', @t)
+            ON CONFLICT(topic_id) DO NOTHING
+            """;
+        cmd.Parameters.AddWithValue("@id", topicId.ToString());
+        cmd.Parameters.AddWithValue("@t", time);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void AdvanceCursor(SqliteConnection conn, Guid topicId, string messageId, long time)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO topic_cursor (topic_id, message_id, time)
+            VALUES (@id, @mid, @t)
+            ON CONFLICT(topic_id) DO UPDATE SET
+                message_id = excluded.message_id,
+                time       = excluded.time
+            WHERE excluded.time >= topic_cursor.time
+            """;
+        cmd.Parameters.AddWithValue("@id", topicId.ToString());
+        cmd.Parameters.AddWithValue("@mid", messageId);
+        cmd.Parameters.AddWithValue("@t", time);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// The ntfy <c>since=</c> value for a topic — the Unix timestamp of the last message we
+    /// acknowledged from the server — or null when we've never seen one. Sourced from the
+    /// dedicated <c>topic_cursor</c> table, so it survives retention sweeps and user deletes
+    /// (which only touch <c>messages</c>).
+    ///
+    /// We return the timestamp, not the message id, on purpose: <c>since=&lt;id&gt;</c> only
+    /// works while that id is still in the server's cache (ntfy default ~12h) — once it ages
+    /// out, ntfy can't locate it and returns <em>nothing</em>, so a topic that went quiet
+    /// longer than the cache window would never catch up. <c>since=&lt;timestamp&gt;</c>
+    /// degrades gracefully: an old value just yields everything still cached after it.
+    /// </summary>
+    public string? GetSinceValue(Guid topicId)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT time FROM topic_cursor WHERE topic_id = @id";
+        cmd.Parameters.AddWithValue("@id", topicId.ToString());
+        var result = cmd.ExecuteScalar();
+        return result is null or DBNull ? null : Convert.ToInt64(result).ToString(CultureInfo.InvariantCulture);
+    }
+
+#if DEBUG
+    /// <summary>
+    /// Dev/test aid: force the catch-up cursor of each given topic back to <paramref name="time"/>
+    /// (use 0 to replay the server's whole cache on the next connect). Upserts a row even for
+    /// topics that have none, so every configured topic re-fetches. Debug builds only.
+    /// </summary>
+    public void DevRewindCursors(IEnumerable<Guid> topicIds, long time)
+    {
+        using var conn = Open();
+        foreach (var id in topicIds)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO topic_cursor (topic_id, message_id, time)
+                VALUES (@id, '', @t)
+                ON CONFLICT(topic_id) DO UPDATE SET time = @t
+                """;
+            cmd.Parameters.AddWithValue("@id", id.ToString());
+            cmd.Parameters.AddWithValue("@t", time);
+            cmd.ExecuteNonQuery();
+        }
+    }
+#endif
 
     public List<HistoryMessage> Query(
         Guid? topicId = null,
