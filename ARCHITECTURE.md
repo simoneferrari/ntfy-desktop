@@ -43,7 +43,7 @@ NtfyDesktop/
 - `RestartAllAsync` — hard teardown + re-apply (used when server URL or token changes).
 - `GetConnectionStatus()` → `ConnectionStatus { Connected, Degraded, Disconnected }` — pure socket health, no concept of pause.
 - `GetTopicStates()` → `IReadOnlyList<TopicConnectionState>` — per-socket status snapshot.
-- Fires `ConnectionStatusChanged` when the aggregate status changes.
+- Publishes `ConnectionStatusChanged` (aggregate) and `TopicConnectionStatusChanged(id, status, error)` (per topic) on the bus; `GetTopicConnectionStatus(id)` exposes a single topic's status. Mutations are serialised (`SemaphoreSlim` + `ConcurrentDictionary`).
 - `TopicConnection` refuses to send the bearer header over `ws://` (cleartext).
 
 ### Notifications
@@ -53,7 +53,7 @@ NtfyDesktop/
 - Global pause: `PauseAll()` / `ResumeAll()` / `IsGloballyPaused`.
 - Per-topic pause: `PauseTopic(name)` / `ResumeTopic(name)` / `IsTopicPaused(name)`.
 - Writes through to `AppSettings.IsPaused` and `TopicSettings.IsPaused`.
-- Fires `GlobalStatusChanged` and `TopicPauseChanged` events.
+- Publishes `NotificationsStatusChanged` (global) and `TopicNotificationsStatusChanged(id, isPaused)` (per topic) on the bus.
 
 `ShowToastNotification` handles `NtfyMessageReceived` and gates delivery through `NotificationGate`. If the gate says suppressed, the message is still written to history — only the toast is dropped.
 
@@ -80,11 +80,11 @@ Ordering is manual and lives in `TopicArrangement`: the `AppSettings.Topics` lis
 
 ### History
 
-`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The repository fires `MessageInserted` (always) and `HistoryChanged` (after any delete) so consumers stay in sync without coupling to each caller.
+`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The repository publishes `MessageInserted` (always) and `MessagesDeleted(topicId, source)` (after any delete — `source` ∈ {Feed, Removal, Retention} lets a consumer ignore deletes it originated) on the bus, so consumers stay in sync without coupling to each caller.
 
 ### Unread
 
-`UnreadTracker` (singleton) owns unread counts surfaced as rail badges. It caches per-topic counts in memory, updating incrementally on `HistoryRepository.MessageInserted` and re-seeding (`GetUnreadCounts`) on `HistoryChanged` / `TopicsChanged`. A feed is marked read on three triggers, all routed through `SetActiveView` / `SetWindowActive`: navigating to it, a message arriving while it's the active view and the window is focused, and the window regaining focus. The badge itself is a `BadgeAdorner` overlaid on each `NavigationViewItem`'s icon — the Icon slot only accepts an `IconElement`, so an adorner is the only way to sit a count bubble on top of the glyph. `MainWindow.xaml` wraps its content in an `AdornerDecorator` to guarantee an adorner layer.
+`UnreadTracker` (singleton) owns unread counts surfaced as rail badges. It caches per-topic counts in memory, updating incrementally on the bus `MessageInserted` event and re-seeding (`GetUnreadCounts`) on `MessagesDeleted`; it publishes `UnreadCountChanged` for the rail badges and tray. (It no longer depends on `ConnectionManager` — topic-set changes that affect counts always go through a delete.) A feed is marked read on three triggers, all routed through `SetActiveView` / `SetWindowActive`: navigating to it, a message arriving while it's the active view and the window is focused, and the window regaining focus. The badge itself is a `BadgeAdorner` overlaid on each `NavigationViewItem`'s icon — the Icon slot only accepts an `IconElement`, so an adorner is the only way to sit a count bubble on top of the glyph. `MainWindow.xaml` wraps its content in an `AdornerDecorator` to guarantee an adorner layer.
 
 ### Shell
 
@@ -99,7 +99,38 @@ Ordering is manual and lives in `TopicArrangement`: the `AppSettings.Topics` lis
 
 `TrayIconHost` drives the tray icon colour from `ConnectionStatus` only. The tooltip composes all three axes ("connected, notifications paused, N unread") — the unread total comes from `UnreadTracker.Total`. (An on-icon count badge was tried but dropped: illegible at the tray's effective 16px size.)
 
+## Messaging (event bus)
+
+Cross-component communication goes through an in-process bus in `Core/Messaging`
+(`EventBus`, backed by CommunityToolkit `WeakReferenceMessenger`). It replaced
+FastEndpoints and the older per-class CLR events.
+
+- **Events** implement `IEvent` (one per file under each feature's `Events/`
+  folder). Publish with the extension: `new SomeEvent(...).PublishAsync()`.
+- **UI consumers** (rail/`MainWindow`, `FeedViewModel`, `ConnectionsViewModel`,
+  `MainWindowViewModel`, tray) subscribe via
+  `EventBus.Subscribe<TEvent>(recipient, handler, ThreadOption.UIThread)` — the
+  bus marshals to the UI thread, so handlers mutate bound state directly (no
+  `Dispatcher.Invoke`). Recipients are weakly referenced.
+- **Service consumers** (e.g. `ConnectionManager` reacting to topic lifecycle)
+  are DI-resolved `IEventHandler<TEvent>` classes on the publisher thread.
+- Three tiers: **structural** (topic/server lifecycle, ordering) → targeted
+  single-item UI updates, with a rail rebuild reserved for rare/cross-container
+  changes; **status/count** (connection, pause, unread) → O(1) targeted updates,
+  never a rebuild; **aggregate** (`ConnectionStatusChanged`,
+  `NotificationsStatusChanged`) → coarse signal + a cheap re-read.
+
+The full catalog — every event, its publisher, and how each surface reacts — is
+in [`docs/events.md`](docs/events.md).
+
+> **Gotcha:** `PublishAsync` infers the bus envelope from the **static** type, so
+> publishing through a base-typed `IEvent` variable yields `EventEnvelope<IEvent>`
+> and matches no `Subscribe<Concrete>` recipient (a silent no-op). Always publish
+> the concrete type.
+
 ## Event flow
+
+The message pipeline specifically:
 
 ```
 TopicConnection (WebSocket)
