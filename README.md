@@ -77,11 +77,14 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Topic groups/folders (collapsible groups in the nav rail, with manual ordering and drag-and-drop)
 - [x] Unread count in the tray tooltip (unread total on the tray icon)
 
-**0.5 — Richer messages**
+**0.5 — Catch up on missed messages**
+- [ ] Fetch messages that arrived while the app was closed or offline (ntfy `since=`), backfilling history and the feed on every (re)connect so nothing is missed across restarts — matching the ntfy web client
+
+**0.6 — Richer messages**
 - [ ] Action buttons (`view` / `http` / `broadcast`)
 - [ ] Image attachments inline in the feed
 
-**0.6 — Polish**
+**0.7 — Polish**
 - [ ] Username/password authentication (in addition to access tokens)
 - [ ] Markdown subset rendering in message bodies (bold, italic, links, code)
 - [ ] "New version available" banner (checks GitHub Releases)
