@@ -12,20 +12,22 @@
 
 A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics across one or more servers, receive Windows toast notifications, and browse your message history from the system tray.
 
-<p align="center">
-  <img src="assets/intro.gif" width="760" alt="ntfy Desktop demo" />
-</p>
-
 > **Status:** early pre-release (v0.x). Functional and in daily use, but the API surface and data formats may still change.
 
 ## Screenshots
 
+<p align="center">
+  <img src="screenshots/all-topics-feed.png" width="760" alt="All-topics feed with unread badges and per-message server labels" />
+</p>
+
 | | |
 |---|---|
-| ![Servers and grouped sidebar](screenshots/settings-and-sidebar-with-multiple-servers.png) | ![Single topic](screenshots/topic-feed.png) |
-| *Multiple servers, grouped sidebar* | *Single-topic feed* |
-| ![Connections](screenshots/connections.png) | ![Per-topic actions](screenshots/topic-context-menu.png) |
-| *Connections page* | *Per-topic actions* |
+| ![Multiple servers and sidebar](screenshots/settings-and-sidebar-with-multiple-servers.png) | ![Single-topic feed](screenshots/topic-feed.png) |
+| *Settings, multiple servers, and the sidebar* | *Single-topic feed* |
+| ![Unread badges in the rail](screenshots/unread-badges.png) | ![Live connection status](screenshots/connections.png) |
+| *Unread badges in the rail* | *Live connection status per topic* |
+| ![Global notification pause](screenshots/paused-notifications-banner.png) | ![Add or edit a topic](screenshots/topic-editor.png) |
+| *Global notification pause* | *Add or edit a topic* |
 
 ## Features
 
