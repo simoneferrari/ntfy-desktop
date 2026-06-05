@@ -25,6 +25,12 @@
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <ui:Button Appearance="Secondary"
+                           Content="Reset catch-up (dev)"
+                           Icon="{ui:SymbolIcon ArrowReset24}"
+                           Margin="0,0,8,0"
+                           Visibility="{Binding ShowDevTools, Converter={StaticResource BoolToVis}}"
+                           Command="{Binding DevResetCatchUpCommand}" />
+                <ui:Button Appearance="Secondary"
                            Content="Disconnect all"
                            Icon="{ui:SymbolIcon PlugDisconnected24}"
                            Margin="0,0,8,0"

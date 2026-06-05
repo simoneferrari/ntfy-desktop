@@ -45,6 +45,9 @@ NtfyDesktop/
 - `GetTopicStates()` → `IReadOnlyList<TopicConnectionState>` — per-socket status snapshot.
 - Publishes `ConnectionStatusChanged` (aggregate) and `TopicConnectionStatusChanged(id, status, error)` (per topic) on the bus; `GetTopicConnectionStatus(id)` exposes a single topic's status. Mutations are serialised (`SemaphoreSlim` + `ConcurrentDictionary`).
 - `TopicConnection` refuses to send the bearer header over `ws://` (cleartext).
+- **Catch-up on missed messages:** every connect attempt resumes with ntfy's `?since=<unix-timestamp>` (`HistoryRepository.GetSinceValue`, re-read per attempt via a `Func<string?>`). The server replays cached messages from that time, then streams live on the same socket — so both an app-restart gap and any mid-session reconnect gap backfill automatically. On subscribe, `ConnectionManager` calls `HistoryRepository.EnsureCursor(topicId, now)` to **prime a baseline** for a topic that has none — its first connect pulls no backlog (never `since=all`, which would dump the whole server cache), but it's no longer cursorless, so every gap *after* that first subscription is caught. (Without this a topic that only ever receives messages while the app is closed would stay cursorless forever and never catch up.) Replayed messages are **tagged `IsBackfill`**: ntfy sends no live/replay delimiter, so `TopicConnection` bounds it by time — a message whose `time` predates the attempt's connect instant (captured per attempt) is backlog. Backfill messages still flow to history/feed/unread; instead of one toast each, `ShowToastNotification` records them with `BackfillSummaryNotifier`, which debounces the burst (ntfy sends no end-of-backlog marker) and fires a single **"N messages while you were away"** summary toast — so a reconnect never re-toasts each already-missed message. Only messages that would have notified live are counted (the same pause/priority/active-hours gate is applied first).
+- **`since` is a timestamp, not a message id, on purpose.** `since=<id>` only works while that id is still in the server cache (ntfy default ~12h); once it ages out, ntfy can't locate the id and returns **nothing** — so a topic quiet longer than the cache window would never catch up (even brand-new messages wouldn't replay). `since=<timestamp>` degrades gracefully: a stale value just returns whatever's still cached after it. A timestamp `since` is *inclusive* of its boundary second, so it re-delivers already-stored messages — `HistoryRepository.Insert` therefore returns whether the row was genuinely new (`INSERT OR IGNORE` affected a row), and **both** downstream fan-outs are gated on it: `Insert` publishes `MessageInserted` only when new, and `ConnectionManager` publishes `NtfyMessageReceived` only when new. Otherwise the re-delivered boundary message would duplicate a feed row / unread bump and inflate the catch-up summary (neither the feed nor `UnreadTracker` dedupes on message id).
+- **The cursor is stored separately from message history** (`topic_cursor` table: `topic_id`, `message_id`, `time`), advanced forward-only on every `Insert` and seeded once from existing history on table creation. It is deliberately *not* derived from `messages`: retention sweeps and user deletes only touch `messages`, so the cursor can't rewind and make the server replay (resurrect) deleted/pruned messages on reconnect. (`DevRewindCursors`, Debug-only, deliberately rewinds it to re-test catch-up.)
 
 ### Notifications
 
@@ -80,11 +83,11 @@ Ordering is manual and lives in `TopicArrangement`: the `AppSettings.Topics` lis
 
 ### History
 
-`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The repository publishes `MessageInserted` (always) and `MessagesDeleted(topicId, source)` (after any delete — `source` ∈ {Feed, Removal, Retention} lets a consumer ignore deletes it originated) on the bus, so consumers stay in sync without coupling to each caller.
+`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt). A second table, `topic_cursor`, holds the per-topic ntfy `since=` catch-up cursor (a Unix timestamp) — separate from `messages` precisely so retention/deletes don't rewind it (see Connections → Catch-up). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The repository publishes `MessageInserted` (always) and `MessagesDeleted(topicId, source)` (after any delete — `source` ∈ {Feed, Removal, Retention} lets a consumer ignore deletes it originated) on the bus, so consumers stay in sync without coupling to each caller.
 
 ### Unread
 
-`UnreadTracker` (singleton) owns unread counts surfaced as rail badges. It caches per-topic counts in memory, updating incrementally on the bus `MessageInserted` event and re-seeding (`GetUnreadCounts`) on `MessagesDeleted`; it publishes `UnreadCountChanged` for the rail badges and tray. (It no longer depends on `ConnectionManager` — topic-set changes that affect counts always go through a delete.) A feed is marked read on three triggers, all routed through `SetActiveView` / `SetWindowActive`: navigating to it, a message arriving while it's the active view and the window is focused, and the window regaining focus. The badge itself is a `BadgeAdorner` overlaid on each `NavigationViewItem`'s icon — the Icon slot only accepts an `IconElement`, so an adorner is the only way to sit a count bubble on top of the glyph. `MainWindow.xaml` wraps its content in an `AdornerDecorator` to guarantee an adorner layer.
+`UnreadTracker` (singleton) owns unread counts surfaced as rail badges. It caches per-topic counts in memory, updating incrementally on the bus `MessageInserted` event and re-seeding (`GetUnreadCounts`) on `MessagesDeleted`; it publishes `UnreadCountChanged` for the rail badges and tray. (It no longer depends on `ConnectionManager` — topic-set changes that affect counts always go through a delete.) A topic is marked read only in the context of **its own** feed — navigating to that topic's feed, a message arriving for it while that feed is active and focused, or the window regaining focus while that feed is active (`SetActiveView` / `SetWindowActive` / `MarksRead`, all keyed on a concrete `TopicId`). The combined **All topics** feed is a passive overview and marks nothing read: otherwise opening the app — which lands on All topics — would wipe every unread badge and hide which messages were missed during catch-up. Bulk clearing is therefore explicit: a per-topic **Mark as read** (rail context menu) and **Mark all read** (the All-topics item's context menu), calling `MarkTopicRead` / `MarkAllRead`. The badge itself is a `BadgeAdorner` overlaid on each `NavigationViewItem`'s icon — the Icon slot only accepts an `IconElement`, so an adorner is the only way to sit a count bubble on top of the glyph. `MainWindow.xaml` wraps its content in an `AdornerDecorator` to guarantee an adorner layer.
 
 ### Shell
 
@@ -133,12 +136,19 @@ in [`docs/events.md`](docs/events.md).
 The message pipeline specifically:
 
 ```
-TopicConnection (WebSocket)
-  └─ NtfyMessageReceived published (event bus)
-       ├─ ShowToastNotification   — checks NotificationGate; shows/drops toast
-       └─ HistoryRepository       — always inserts (pause doesn't suppress history)
-            └─ MessageInserted     — Feed appends row; UnreadTracker bumps the badge
+TopicConnection (WebSocket, resumed with ?since=<cursor timestamp>)
+  └─ ConnectionManager.OnMessageReceived
+       ├─ HistoryRepository.Insert — INSERT-OR-IGNORE; advances cursor; returns isNew
+       │     └─ (if new) MessageInserted — Feed appends row; UnreadTracker bumps the badge
+       └─ if isNew → NtfyMessageReceived (IsBackfill = replayed catch-up)
+            └─ ShowToastNotification — gate (pause/priority/hours); live→toast,
+                                       backfill→BackfillSummaryNotifier (debounced summary)
 ```
+
+Both fan-outs fire **only for genuinely-new rows**. An inclusive `since=<timestamp>`
+re-delivers each topic's boundary message on every reconnect; gating on `Insert`'s novelty
+result is what stops that from showing a phantom "while you were away" summary or a duplicate
+feed row.
 
 ## Security posture
 

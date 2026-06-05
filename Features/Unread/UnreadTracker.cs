@@ -21,9 +21,10 @@ public readonly record struct ActiveView(bool IsFeed, Guid? TopicId)
     /// <summary>A single topic's feed.</summary>
     public static ActiveView Topic(Guid id) => new(true, id);
 
-    /// <summary>True when a feed is shown and the given message belongs to it
-    /// (All-topics matches every message; a topic feed matches only its own).</summary>
-    public bool Matches(Guid messageTopicId) => IsFeed && (TopicId is null || TopicId == messageTopicId);
+    /// <summary>True when this view is a single topic's feed showing the given message's
+    /// topic. The combined "All topics" feed deliberately does NOT match — viewing the
+    /// aggregate is a passive overview and must not mark messages read.</summary>
+    public bool MarksRead(Guid messageTopicId) => IsFeed && TopicId == messageTopicId;
 }
 
 /// <summary>
@@ -32,10 +33,13 @@ public readonly record struct ActiveView(bool IsFeed, Guid? TopicId)
 /// the hot path (a message arriving) updates the cache incrementally, while
 /// coarse changes (mark-read, topic add/remove, retention sweep) re-query.
 ///
-/// A feed becomes "read" when the user navigates to it, when a message arrives
-/// while it's the active view and the window is focused, or when the window
-/// regains focus while it's the active view — the three triggers that together
-/// keep the active feed's badge from getting stuck.
+/// A topic becomes "read" only in the context of <em>its own</em> feed: when the
+/// user navigates to that topic's feed, when a message arrives while that feed is
+/// the active view and the window is focused, or when the window regains focus
+/// while that feed is active. The combined "All topics" feed is a passive overview
+/// and never marks anything read — otherwise opening the app (which lands there)
+/// would wipe every unread badge, hiding which messages were missed. Bulk clearing
+/// is explicit via <see cref="MarkTopicRead"/> / <see cref="MarkAllRead"/>.
 /// </summary>
 public sealed class UnreadTracker
 {
@@ -79,18 +83,19 @@ public sealed class UnreadTracker
         _ = new UnreadCountChanged(null).PublishAsync();
     }
 
-    /// <summary>Record which feed is on screen. Navigating to a feed marks it
-    /// read (explicit user action); navigating away (None) just stops
-    /// auto-reading arrivals.</summary>
+    /// <summary>Record which feed is on screen. Navigating to a single topic's feed
+    /// marks that topic read (explicit "I'm looking at this topic"); navigating to the
+    /// All-topics feed or away (None) marks nothing.</summary>
     public void SetActiveView(ActiveView view)
     {
         lock (_lock) _activeView = view;
-        if (view.IsFeed)
-            MarkViewRead(view);
+        if (view.TopicId is { } id)
+            MarkTopicRead(id);
     }
 
-    /// <summary>Track window focus. Regaining focus marks the current feed read,
-    /// covering messages that arrived while the window was hidden in the tray.</summary>
+    /// <summary>Track window focus. Regaining focus marks the active topic feed read,
+    /// covering messages that arrived for it while the window was hidden in the tray.
+    /// Only a single-topic feed qualifies — the All-topics overview is left untouched.</summary>
     public void SetWindowActive(bool active)
     {
         ActiveView view;
@@ -99,8 +104,8 @@ public sealed class UnreadTracker
             _windowActive = active;
             view = _activeView;
         }
-        if (active && view.IsFeed)
-            MarkViewRead(view);
+        if (active && view.TopicId is { } id)
+            MarkTopicRead(id);
     }
 
     public void MarkAllRead()
@@ -115,18 +120,14 @@ public sealed class UnreadTracker
         Refresh();
     }
 
-    private void MarkViewRead(ActiveView view)
-    {
-        if (view.TopicId is { } id) MarkTopicRead(id);
-        else                        MarkAllRead();
-    }
-
     private void OnMessageInserted(HistoryMessage m)
     {
         bool viewing;
         lock (_lock)
         {
-            viewing = _windowActive && _activeView.Matches(m.TopicId);
+            // Auto-read only while looking at this message's own topic feed (focused).
+            // Arrivals shown in the All-topics overview stay unread until the topic is opened.
+            viewing = _windowActive && _activeView.MarksRead(m.TopicId);
             _counts[m.TopicId] = viewing ? 0 : _counts.GetValueOrDefault(m.TopicId) + 1;
         }
 
