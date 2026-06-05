@@ -1,8 +1,13 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using NtfyDesktop.Domain;
 
 namespace NtfyDesktop.Features.History;
 
-public class HistoryMessage
+// Only the display-only fields (TopicLabel / ServerName / ShowTopic) are observable:
+// they're re-enriched in place by FeedViewModel when topic/server display settings
+// change, so the bound row updates without rebuilding the list. Everything else is
+// write-once at load/insert.
+public partial class HistoryMessage : ObservableObject
 {
     public long RowId { get; set; }
     public string MessageId { get; set; } = string.Empty;
@@ -25,14 +30,19 @@ public class HistoryMessage
     // repository doesn't know about display names or servers).
 
     /// <summary>Friendly topic label for the chip; falls back to the raw topic name.</summary>
-    public string? TopicLabel { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayTopic))]
+    private string? _topicLabel;
 
     /// <summary>Server label to show on the row (set only when it should be shown).</summary>
-    public string? ServerName { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasServer))]
+    private string? _serverName;
 
     /// <summary>Whether to show the topic chip — only on the combined All-topics view
     /// (redundant on a single-topic view, where every row is the same topic).</summary>
-    public bool ShowTopic { get; set; }
+    [ObservableProperty]
+    private bool _showTopic;
 
     public string DisplayTopic => string.IsNullOrEmpty(TopicLabel) ? Topic : TopicLabel!;
     public bool HasServer => !string.IsNullOrEmpty(ServerName);

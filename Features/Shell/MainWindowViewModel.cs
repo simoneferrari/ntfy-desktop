@@ -1,14 +1,16 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Features.Connections.Events;
 using NtfyDesktop.Features.Notifications;
+using NtfyDesktop.Features.Notifications.Events;
 
 namespace NtfyDesktop.Features.Shell;
 
-// Owns the chrome state for MainWindow: connection-health pip + text in the
-// title bar, and a separate "paused" chip when notifications are paused.
-// Subscribes to both ConnectionManager (sockets) and NotificationGate (pause)
-// because they're independent axes.
+// Owns the chrome state for MainWindow: connection-health pip + text in the title
+// bar, and a separate "paused" chip when notifications are paused. Both are
+// aggregate views, so they re-read on the coarse bus events.
 public sealed partial class MainWindowViewModel : ObservableObject
 {
     private readonly ConnectionManager _connections;
@@ -31,12 +33,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     // title-bar button is hidden to avoid two redundant controls.
     public bool ShowPauseButton => !IsGloballyPaused;
 
-    public MainWindowViewModel(ConnectionManager connections, NotificationGate gate)
+    public MainWindowViewModel(ConnectionManager connections, NotificationGate gate, EventBus bus)
     {
         _connections = connections;
         _gate = gate;
-        _connections.ConnectionStatusChanged += OnConnectionChanged;
-        _gate.GlobalStatusChanged += OnGateChanged;
+
+        // Aggregate displays — re-read on the coarse events (handlers run on the UI thread).
+        bus.Subscribe<ConnectionStatusChanged>(this, _ => Refresh(), ThreadOption.UIThread);
+        bus.Subscribe<NotificationsStatusChanged>(this, _ => Refresh(), ThreadOption.UIThread);
+
         Refresh();
     }
 
@@ -46,12 +51,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (_gate.IsGloballyPaused) _gate.ResumeAll();
         else                        _gate.PauseAll();
     }
-
-    private void OnConnectionChanged(object? sender, EventArgs e) =>
-        System.Windows.Application.Current?.Dispatcher.Invoke(Refresh);
-
-    private void OnGateChanged(object? sender, EventArgs e) =>
-        System.Windows.Application.Current?.Dispatcher.Invoke(Refresh);
 
     private void Refresh()
     {

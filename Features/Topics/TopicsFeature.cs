@@ -8,8 +8,8 @@ public static class TopicsFeature
     {
         public void AddTopics()
         {
-            services.AddSingleton<TopicsViewModel>();
-
+            services.AddSingleton<TopicArrangement>();
+            services.AddSingleton<TopicManager>();
         }
         
     }

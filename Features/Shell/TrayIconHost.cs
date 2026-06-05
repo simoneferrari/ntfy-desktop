@@ -47,12 +47,14 @@ internal sealed class TrayIconHost : IDisposable
 
     public void SetConnectionStatus(ConnectionStatus status)
     {
+        if (status == _lastConnection) return; // avoid reloading the icon on no-op updates
         _lastConnection = status;
         Render();
     }
 
     public void SetNotificationStatus(NotificationStatus status)
     {
+        if (status == _lastNotifications) return; // avoid reloading the icon on no-op updates
         _lastNotifications = status;
         Render();
     }

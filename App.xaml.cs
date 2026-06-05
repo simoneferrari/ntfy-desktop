@@ -1,14 +1,17 @@
 using System.IO;
 using System.Windows;
-using FastEndpoints;
 using Microsoft.Extensions.DependencyInjection;
+using NtfyDesktop.Core.Messaging;
 using Microsoft.Extensions.Hosting;
 using NtfyDesktop.Features;
 using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Features.Connections.Events;
 using NtfyDesktop.Features.Feed;
 using NtfyDesktop.Features.Notifications;
+using NtfyDesktop.Features.Notifications.Events;
 using NtfyDesktop.Features.Shell;
 using NtfyDesktop.Features.Unread;
+using NtfyDesktop.Features.Unread.Events;
 using Wpf.Ui.Appearance;
 using FeedViewModel = NtfyDesktop.Features.Feed.FeedViewModel;
 
@@ -134,12 +137,14 @@ public partial class App : Application
         _trayIcon.SetNotificationStatus(gate.GlobalStatus);
         _trayIcon.SetUnreadCount(unread.Total);
 
-        conn.ConnectionStatusChanged += (_, _) =>
-            Dispatcher.Invoke(() => _trayIcon?.SetConnectionStatus(conn.GetConnectionStatus()));
-        gate.GlobalStatusChanged += (_, _) =>
-            Dispatcher.Invoke(() => _trayIcon?.SetNotificationStatus(gate.GlobalStatus));
-        unread.Changed += (_, _) =>
-            Dispatcher.Invoke(() => _trayIcon?.SetUnreadCount(unread.Total));
+        // Bus subscriptions marshaled to the UI thread, so the tray updates directly.
+        var bus = _host.Services.GetRequiredService<EventBus>();
+        bus.Subscribe<ConnectionStatusChanged>(this,
+            _ => _trayIcon?.SetConnectionStatus(conn.GetConnectionStatus()), ThreadOption.UIThread);
+        bus.Subscribe<NotificationsStatusChanged>(this,
+            _ => _trayIcon?.SetNotificationStatus(gate.GlobalStatus), ThreadOption.UIThread);
+        bus.Subscribe<UnreadCountChanged>(this,
+            _ => _trayIcon?.SetUnreadCount(unread.Total), ThreadOption.UIThread);
 
         // Cold-start activation: if launched directly by a toast click (no prior
         // instance), now that the host is up we can dispatch the URL.

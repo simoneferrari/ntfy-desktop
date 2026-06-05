@@ -1,5 +1,5 @@
-﻿using FastEndpoints;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.Feed;
 using NtfyDesktop.Features.History;

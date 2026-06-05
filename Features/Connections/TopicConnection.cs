@@ -2,10 +2,11 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using NtfyDesktop.Domain;
+using NtfyDesktop.Features.Topics;
 
 namespace NtfyDesktop.Features.Connections;
 
-public sealed class TopicConnection(Guid topicId, string topicName, Func<string> getServerUrl, Func<string> getToken) : IAsyncDisposable
+public sealed class TopicConnection(Guid topicId, string topicName, Guid serverId, Func<string> getServerUrl, Func<string> getToken) : IAsyncDisposable
 {
     private CancellationTokenSource _cts = new();
     private Task _runTask = Task.CompletedTask;
@@ -156,4 +157,8 @@ public sealed class TopicConnection(Guid topicId, string topicName, Func<string>
     }
 
     public async ValueTask DisposeAsync() => await StopAsync();
+
+    
+    public bool MatchesTopicSettings(TopicSettings topic)
+        => topicName == topic.Name && serverId == topic.ServerId;
 }

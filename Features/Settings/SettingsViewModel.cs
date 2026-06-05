@@ -2,9 +2,11 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.History;
+using NtfyDesktop.Features.Settings.Events;
 
 namespace NtfyDesktop.Features.Settings;
 
@@ -99,9 +101,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.Save();
         ReloadServers();
 
-        // A rename changes the server's DisplayLabel, which the rail subtitle and
-        // the All-topics feed chip show — refresh them.
-        _settings.RaiseDisplayChanged();
+        // A rename changes the server's DisplayLabel (and an add changes the server
+        // count), which the rail subtitle and the All-topics feed chip show — refresh.
+        _ = new ServerDisplayChanged().PublishAsync();
 
         if (original is null)
             return; // brand-new server has no topics yet — nothing to (re)connect
@@ -128,14 +130,16 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         _settings.RemoveServer(server.Id);   // cascade-removes its topics
         _settings.Save();
+        
         ReloadServers();
 
         if (deleteHistory)
             foreach (var id in topicIds)
-                _history.DeleteByTopicId(id);
+                _history.DeleteByTopicId(id, MessageDeletionSource.Removal);
 
         // ApplySettings drops the connections for the now-deleted topics; other
-        // servers' sockets are left untouched.
+        // servers' sockets are left untouched. AppSettings.RemoveServer already
+        // published ServerDeleted (carrying the removed topic ids) for the UI.
         await _connections.ApplySettingsAsync();
     }
 
@@ -183,7 +187,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsDirty = false;
 
         if (railChanged)
-            _settings.RaiseDisplayChanged();
+            _ = new ServerDisplayChanged().PublishAsync();
 
         return Task.CompletedTask;
     }

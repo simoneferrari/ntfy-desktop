@@ -1,18 +1,23 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Features.Connections.Events;
 using NtfyDesktop.Features.Feed;
 using NtfyDesktop.Features.Notifications;
+using NtfyDesktop.Features.Notifications.Events;
 using NtfyDesktop.Features.Settings;
+using NtfyDesktop.Features.Settings.Events;
 using NtfyDesktop.Features.Topics;
 using NtfyDesktop.Features.Topics.Dialogs;
+using NtfyDesktop.Features.Topics.Events;
 using NtfyDesktop.Features.Unread;
+using NtfyDesktop.Features.Unread.Events;
 using Wpf.Ui.Appearance;
 using Wpf.Ui.Controls;
 using FeedViewModel = NtfyDesktop.Features.Feed.FeedViewModel;
@@ -20,16 +25,17 @@ using MessageBox = System.Windows.MessageBox;
 using NavigationViewItem = Wpf.Ui.Controls.NavigationViewItem;
 using SettingsViewModel = NtfyDesktop.Features.Settings.SettingsViewModel;
 using SymbolIcon = Wpf.Ui.Controls.SymbolIcon;
+using TextBlock = Wpf.Ui.Controls.TextBlock;
 
 namespace NtfyDesktop.Features.Shell;
 
-public partial class MainWindow : FluentWindow
+public partial class MainWindow
 {
-    private static readonly Brush PipConnectedBrush    = Frozen(Color.FromRgb(0x16, 0xA3, 0x4A));
-    private static readonly Brush PipConnectingBrush   = Frozen(Color.FromRgb(0xEA, 0x58, 0x0C));
-    private static readonly Brush PipDisconnectedBrush = Frozen(Color.FromRgb(0xDC, 0x26, 0x26));
-    private static readonly Brush PausedGlyphBrush     = Frozen(Color.FromRgb(0x9C, 0xA3, 0xAF));
-    private static readonly Brush BadgeBrush           = Frozen(Color.FromRgb(0x00, 0x67, 0xC0));
+    private static readonly Brush _pipConnectedBrush    = Frozen(Color.FromRgb(0x16, 0xA3, 0x4A));
+    private static readonly Brush _pipConnectingBrush   = Frozen(Color.FromRgb(0xEA, 0x58, 0x0C));
+    private static readonly Brush _pipDisconnectedBrush = Frozen(Color.FromRgb(0xDC, 0x26, 0x26));
+    private static readonly Brush _pausedGlyphBrush     = Frozen(Color.FromRgb(0x9C, 0xA3, 0xAF));
+    private static readonly Brush _badgeBrush           = Frozen(Color.FromRgb(0x00, 0x67, 0xC0));
 
     private static SolidColorBrush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 
@@ -38,10 +44,12 @@ public partial class MainWindow : FluentWindow
     private readonly NotificationGate _gate;
     private readonly FeedViewModel _feedVm;
     private readonly SettingsViewModel _settingsVm;
-    private readonly TopicsViewModel _topicsVm;
+    private readonly TopicManager _topics;
     private readonly UnreadTracker _unread;
     private readonly Dictionary<Guid, RailItem> _railItems = new();
     private readonly Dictionary<string, IconBadge> _groupBadges = new();
+    private readonly Dictionary<string, NavigationViewItem> _groupFolders = new();
+    
     private IconBadge? _allTopicsBadge;
 
     // Rail drag-and-drop state. Payload is a Guid (topic id) or a string (group name).
@@ -51,7 +59,11 @@ public partial class MainWindow : FluentWindow
     private Adorner? _dropAdorner;    // current drop indicator (line or highlight)
     private (UIElement Target, string Mode, bool Flag)? _dropKey; // dedupe re-renders
 
-    private sealed record RailItem(NavigationViewItem Item, Ellipse Pip, SymbolIcon PauseGlyph, IconBadge Badge);
+    // Group is the section the item currently lives in within the rail (""=ungrouped),
+    // captured at build time. Needed to locate the item for removal even after the
+    // topic is gone from settings (TopicDeleted carries only the id).
+    private sealed record RailItem(NavigationViewItem Item, Ellipse Pip, SymbolIcon PauseGlyph, IconBadge Badge,
+        System.Windows.Controls.TextBlock Label, System.Windows.Controls.TextBlock? Subtitle, string Group);
 
     // Last page type the user landed on; updated by the Navigated event.
     private Type? _currentPageType;
@@ -68,8 +80,9 @@ public partial class MainWindow : FluentWindow
         NotificationGate gate,
         FeedViewModel feedVm,
         SettingsViewModel settingsVm,
-        TopicsViewModel topicsVm,
+        TopicManager topics,
         UnreadTracker unread,
+        EventBus eventBus,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -82,7 +95,7 @@ public partial class MainWindow : FluentWindow
         _gate = gate;
         _feedVm = feedVm;
         _settingsVm = settingsVm;
-        _topicsVm = topicsVm;
+        _topics = topics;
         _unread = unread;
 
         RootNavigation.SetServiceProvider(services);
@@ -91,22 +104,28 @@ public partial class MainWindow : FluentWindow
         // so initial Navigate would NRE. Defer to Loaded.
         Loaded += OnFirstLoaded;
 
-        // Keep the rail's per-topic items in sync with settings.
-        _connections.TopicsChanged += OnTopicsChanged;
-        // Pip colour follows connection status.
-        _connections.ConnectionStatusChanged += OnConnectionChanged;
-        // Pause glyph follows the gate (both global and per-topic flips).
-        _gate.GlobalStatusChanged += OnGateChanged;
-        _gate.TopicPauseChanged += OnTopicPauseChanged;
+        // ===== Rail event subscriptions (bus; marshaled to the UI thread) =====
+        // Structural — incremental single-item updates.
+        eventBus.Subscribe<TopicAdded>(this, e => InsertTopicItem(e.Topic), ThreadOption.UIThread);
+        eventBus.Subscribe<TopicUpdated>(this, e => OnTopicUpdated(e.Topic), ThreadOption.UIThread);
+        eventBus.Subscribe<TopicDeleted>(this, e => OnTopicDeleted(e.TopicId), ThreadOption.UIThread);
+        eventBus.Subscribe<TopicMoved>(this, e => OnTopicMoved(e.TopicId), ThreadOption.UIThread);
+        eventBus.Subscribe<GroupMoved>(this, e => RepositionFolder(e.GroupName), ThreadOption.UIThread);
 
-        // Rebuild the rail when a display-affecting setting changes (server rename,
-        // server-label toggle).
-        _settings.DisplayChanged += (_, _) => Dispatcher.Invoke(RebuildTopicItems);
+        // Server display / removal — rare; a full rebuild handles server-label
+        // appear/disappear cleanly.
+        eventBus.Subscribe<ServerDisplayChanged>(this, _ => RebuildTopicItems(), ThreadOption.UIThread);
+        eventBus.Subscribe<ServerDeleted>(this, OnServerDeleted, ThreadOption.UIThread);
 
-        // Unread badges follow the tracker. Window focus drives "viewing" state:
-        // regaining focus marks the current feed read (catches messages that
-        // arrived while minimized to the tray).
-        _unread.Changed += (_, _) => Dispatcher.Invoke(RefreshBadges);
+        // Status / pause / unread — targeted adornment updates, never a rebuild.
+        eventBus.Subscribe<TopicConnectionStatusChanged>(this,
+            e => RefreshTopicAdornment(e.TopicId, e.Status), ThreadOption.UIThread);
+        eventBus.Subscribe<NotificationsStatusChanged>(this, _ => RefreshAllPauseGlyphs(), ThreadOption.UIThread);
+        eventBus.Subscribe<TopicNotificationsStatusChanged>(this, OnTopicPauseChanged, ThreadOption.UIThread);
+        eventBus.Subscribe<UnreadCountChanged>(this, _ => RefreshBadges(), ThreadOption.UIThread);
+
+        // Window focus drives "viewing" state: regaining focus marks the current feed
+        // read (catches messages that arrived while minimized to the tray).
         Activated   += (_, _) => _unread.SetWindowActive(true);
         Deactivated += (_, _) => _unread.SetWindowActive(false);
 
@@ -126,8 +145,8 @@ public partial class MainWindow : FluentWindow
         // "All topics" is a drop target for ungrouping: drag a topic onto it to pull
         // it out of its group. (It's a drop target only — never a drag source.)
         AllTopicsItem.AllowDrop = true;
-        AllTopicsItem.DragOver += (s, e) => OnRailDragOver((NavigationViewItem)s, e);
-        AllTopicsItem.Drop += (s, e) => OnRailDrop((NavigationViewItem)s, e);
+        AllTopicsItem.DragOver += (s, e1) => OnRailDragOver((NavigationViewItem)s, e1);
+        AllTopicsItem.Drop += (s, e1) => OnRailDrop((NavigationViewItem)s, e1);
 
         RebuildTopicItems();
         // Navigating to FeedPage marks AllTopicsItem (TargetPageType=FeedPage) as active.
@@ -135,17 +154,221 @@ public partial class MainWindow : FluentWindow
         RefreshBadges();
     }
 
-    private void OnTopicsChanged(object? sender, EventArgs e) =>
-        Dispatcher.Invoke(RebuildTopicItems);
+    private void OnTopicUpdated(TopicSettings topic)
+    {
+        // An edit can change label, enabled, server (subtitle) and group — rebuild the
+        // single item in its (possibly new) place. Cheap; only on a deliberate edit.
+        RepositionTopicItem(topic);
+    }
 
-    private void OnConnectionChanged(object? sender, EventArgs e) =>
-        Dispatcher.Invoke(RefreshTopicAdornments);
+    private void OnTopicDeleted(Guid topicId)
+    {
+        RemoveTopicItem(topicId);
 
-    private void OnGateChanged(object? sender, EventArgs e) =>
-        Dispatcher.Invoke(RefreshTopicAdornments);
+        // Viewing the deleted topic? Fall back to All topics.
+        if (_feedVm.CurrentTopicId == topicId)
+            NavigateToAllTopics();
+    }
 
-    private void OnTopicPauseChanged(object? sender, Guid topicId) =>
-        Dispatcher.Invoke(RefreshTopicAdornments);
+    private void OnTopicMoved(Guid topicId)
+    {
+        // Reorder via rebuild. Incremental same-container reposition works for drag-drop,
+        // but leaves WPF-UI selection stuck when triggered from a closing context menu
+        // (Move up/down); a rebuild re-syncs selection reliably. Reorders are rare.
+        RebuildTopicItems();
+    }
+
+    private void OnServerDeleted(ServerDeleted ev)
+    {
+        // The server's topics are gone from settings — a full rebuild drops their rail
+        // items and refreshes remaining server-label visibility. Rare action.
+        RebuildTopicItems();
+
+        if (_feedVm.CurrentTopicId is { } id && ev.RemovedTopicIds.Contains(id))
+            NavigateToAllTopics();
+    }
+
+    private void OnTopicPauseChanged(TopicNotificationsStatusChanged ev)
+    {
+        if (_railItems.TryGetValue(ev.TopicId, out var rail))
+            rail.PauseGlyph.Visibility =
+                ev.IsPaused || _gate.IsGloballyPaused ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void RefreshAllPauseGlyphs()
+    {
+        foreach (var (id, rail) in _railItems)
+            rail.PauseGlyph.Visibility = _gate.IsTopicPaused(id) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void NavigateToAllTopics()
+    {
+        RootNavigation.Navigate(typeof(FeedPage));
+        _feedVm.CurrentTopicId = null;
+        _unread.SetActiveView(ActiveView.AllTopics);
+    }
+
+    private NavigationViewItem EnsureGroupFolder(string groupName)
+    {
+        if (_groupFolders.TryGetValue(groupName, out var existingFolder))
+            return existingFolder;
+
+        var folder = BuildGroupFolder(groupName);
+        _groupFolders[groupName] = folder;
+        RootNavigation.MenuItems.Insert(FolderInsertIndex(groupName), folder);
+
+        return folder;
+    }
+
+    // Folders live after the ungrouped topics, ordered by OrderedGroupNames. Computed
+    // from current menu state, so it's valid both when creating a folder and when
+    // re-inserting one after a GroupMoved (the caller removes it first).
+    private int FolderInsertIndex(string groupName)
+    {
+        var order = _topics.Arrangement.OrderedGroupNames;
+        var groupIndex = order.IndexOf(groupName);
+        var menu = RootNavigation.MenuItems;
+
+        if (groupIndex <= 0)
+        {
+            var ungroupedCount = _topics.Arrangement.GetTopicsInGroup(null).Count;
+            return menu.IndexOf(AddTopicItem) + 1 + ungroupedCount;
+        }
+
+        // The preceding group always has a folder: OrderedGroupNames only lists groups
+        // in use, and any in-use group created its folder via this path.
+        return menu.IndexOf(_groupFolders[order[groupIndex - 1]]) + 1;
+    }
+
+    private void RepositionFolder(string groupName)
+    {
+        if (!_groupFolders.TryGetValue(groupName, out var folder)) return;
+
+        var menu = RootNavigation.MenuItems;
+        menu.Remove(folder);
+        menu.Insert(FolderInsertIndex(groupName), folder);
+    }
+
+    private void InsertTopicItem(TopicSettings topic)
+    {
+        TopicsSeparator.Visibility = Visibility.Visible;
+
+        var rail = BuildRailItem(topic);
+        _railItems[topic.Id] = rail;
+        ApplyEnabledStyling(rail.Item, topic.Enabled);
+
+        var groupName = TopicArrangement.GetTopicGroupName(topic);
+
+        if (groupName.Length == 0)
+        {
+            // Ungrouped: a direct child of the menu, contiguous after AddTopicItem.
+            var section = _topics.Arrangement.GetTopicsInGroup(null);
+            var k = section.FindIndex(t => t.Id == topic.Id);
+
+            var menu = RootNavigation.MenuItems;
+            menu.Insert(menu.IndexOf(AddTopicItem) + 1 + k, rail.Item);
+        }
+        else
+        {
+            // Grouped: into the folder, whose children are exactly that group's topics
+            // in order — so the section index is the folder index directly.
+            var folder = EnsureGroupFolder(groupName);
+            var section = _topics.Arrangement.GetTopicsInGroup(groupName);
+            var k = section.FindIndex(t => t.Id == topic.Id);
+
+            folder.MenuItems.Insert(k, rail.Item);
+        }
+
+        RefreshTopicAdornment(topic.Id);
+        RefreshBadges();
+    }
+
+    // Removes by id (using the item's captured Group) so it works even after the topic
+    // is gone from settings — TopicDeleted carries only the id.
+    private void RemoveTopicItem(Guid topicId)
+    {
+        if (!_railItems.Remove(topicId, out var rail)) return;
+
+        rail.Badge.Detach();
+
+        if (rail.Group.Length == 0)
+        {
+            RootNavigation.MenuItems.Remove(rail.Item);
+        }
+        else if (_groupFolders.TryGetValue(rail.Group, out var folder))
+        {
+            folder.MenuItems.Remove(rail.Item);
+
+            // Drop the folder (and its badge) once its last topic leaves.
+            if (folder.MenuItems.Count == 0)
+            {
+                RootNavigation.MenuItems.Remove(folder);
+                _groupFolders.Remove(rail.Group);
+                _groupBadges.Remove(rail.Group);
+            }
+        }
+
+        RefreshBadges();
+    }
+
+    // Moves/refreshes an existing rail item in place, PRESERVING the NavigationViewItem
+    // instance. Replacing it with a fresh instance breaks WPF-UI NavigationView
+    // selection for that item (it keeps tracking the removed instance), so we reuse it.
+    private void RepositionTopicItem(TopicSettings topic)
+    {
+        if (!_railItems.TryGetValue(topic.Id, out var rail))
+        {
+            InsertTopicItem(topic); // not tracked yet (e.g. an update racing the add)
+            return;
+        }
+
+        var newGroup = TopicArrangement.GetTopicGroupName(topic);
+
+        // Cross-group move: WPF-UI doesn't reliably reparent a live NavigationViewItem
+        // between the root and a folder (the item lands in limbo). Rebuild instead — a
+        // rare, deliberate action, and a rebuild gives correct structure + selection.
+        if (newGroup != rail.Group)
+        {
+            RebuildTopicItems();
+            return;
+        }
+
+        // Same group — update content (rename / enable / server) and reorder in place,
+        // PRESERVING the instance (a fresh one would break WPF-UI selection for it).
+        rail.Label.Text = topic.EffectiveDisplayName;
+        ApplyEnabledStyling(rail.Item, topic.Enabled);
+        if (rail.Subtitle is not null)
+            rail.Subtitle.Text = _settings.GetServer(topic.ServerId)?.DisplayLabel ?? string.Empty;
+
+        RemoveItemFromContainer(rail);
+
+        if (newGroup.Length == 0)
+        {
+            var section = _topics.Arrangement.GetTopicsInGroup(null);
+            var k = section.FindIndex(t => t.Id == topic.Id);
+            var menu = RootNavigation.MenuItems;
+            menu.Insert(menu.IndexOf(AddTopicItem) + 1 + k, rail.Item);
+        }
+        else
+        {
+            var folder = _groupFolders[newGroup];
+            var section = _topics.Arrangement.GetTopicsInGroup(newGroup);
+            var k = section.FindIndex(t => t.Id == topic.Id);
+            folder.MenuItems.Insert(k, rail.Item);
+        }
+
+        RefreshTopicAdornment(topic.Id);
+        RefreshBadges();
+    }
+
+    // Detaches an item from its current rail container without untracking it.
+    private void RemoveItemFromContainer(RailItem rail)
+    {
+        if (rail.Group.Length == 0)
+            RootNavigation.MenuItems.Remove(rail.Item);
+        else if (_groupFolders.TryGetValue(rail.Group, out var folder))
+            folder.MenuItems.Remove(rail.Item);
+    }
 
     private void RebuildTopicItems()
     {
@@ -160,6 +383,7 @@ public partial class MainWindow : FluentWindow
 
         _railItems.Clear();
         _groupBadges.Clear();
+        _groupFolders.Clear();
 
         if (_settings.Topics.Count == 0)
         {
@@ -170,42 +394,34 @@ public partial class MainWindow : FluentWindow
         TopicsSeparator.Visibility = Visibility.Visible;
         var insertAt = anchorIdx + 1;
 
-        // Server context only matters with more than one server (otherwise every
-        // topic shows the same label). The toggle gates it on top of that.
-        var showServer = _settings.Servers.Count > 1 && _settings.ShowServerLabel;
-        string? Subtitle(TopicSettings t) =>
-            showServer ? _settings.GetServer(t.ServerId)?.DisplayLabel : null;
-
-        RailItem Register(TopicSettings t)
-        {
-            var item = BuildTopicNavItem(t, Subtitle(t));
-            _railItems[t.Id] = item;
-            ApplyEnabledStyling(item.Item, t.Enabled);
-            return item;
-        }
-
         // Order is the Topics list order within a section, and GroupOrder for the
         // folders themselves (both user-arranged). Ungrouped topics sit at the top
         // level, above the folders.
-        TopicsInGroup(null).ForEach(t => menu.Insert(insertAt++, Register(t).Item));
+        _topics.Arrangement.GetTopicsInGroup(null).ForEach(t => menu.Insert(insertAt++, Register(t).Item));
 
-        foreach (var group in _topicsVm.OrderedGroups())
+        foreach (var groupName in _topics.Arrangement.OrderedGroupNames)
         {
-            var folder = BuildGroupFolder(group);
-            foreach (var t in TopicsInGroup(group))
+            var folder = BuildGroupFolder(groupName);
+            _groupFolders[groupName] = folder;
+
+            foreach (var t in _topics.Arrangement.GetTopicsInGroup(groupName))
                 folder.MenuItems.Add(Register(t).Item);
+
             menu.Insert(insertAt++, folder);
         }
 
         RefreshTopicAdornments();
         RefreshBadges();
-    }
 
-    // Topics in the given group (null = ungrouped), in Topics list order.
-    private List<TopicSettings> TopicsInGroup(string? group)
-    {
-        var section = group ?? string.Empty;
-        return _settings.Topics.Where(t => (t.GroupName?.Trim() ?? string.Empty) == section).ToList();
+        return;
+
+        RailItem Register(TopicSettings t)
+        {
+            var item = BuildRailItem(t);
+            _railItems[t.Id] = item;
+            ApplyEnabledStyling(item.Item, t.Enabled);
+            return item;
+        }
     }
 
     // A collapsible group folder: a non-navigating parent nav item whose children
@@ -229,7 +445,7 @@ public partial class MainWindow : FluentWindow
 
         // Restore persisted collapse state before wiring the listener, so this
         // programmatic set doesn't trigger a redundant save.
-        folder.IsExpanded = !_settings.CollapsedGroups.Contains(groupName);
+        folder.IsExpanded = !_topics.Arrangement.IsGroupCollapsed(groupName);
 
         _groupBadges[groupName] = new IconBadge(icon);
 
@@ -237,56 +453,42 @@ public partial class MainWindow : FluentWindow
         // Detach on Unloaded — folders are recreated on every rebuild.
         var dpd = DependencyPropertyDescriptor.FromProperty(
             NavigationViewItem.IsExpandedProperty, typeof(NavigationViewItem));
-        void OnExpandChanged(object? s, EventArgs e) => PersistGroupCollapsed(groupName, !folder.IsExpanded);
         dpd.AddValueChanged(folder, OnExpandChanged);
         folder.Unloaded += (_, _) => dpd.RemoveValueChanged(folder, OnExpandChanged);
 
         return folder;
+        
+        void OnExpandChanged(object? s, EventArgs e) => _topics.Arrangement.SetGroupCollapsed(groupName, !folder.IsExpanded);
     }
-
-    private void PersistGroupCollapsed(string groupName, bool collapsed)
-    {
-        var alreadyCollapsed = _settings.CollapsedGroups.Contains(groupName);
-        if (collapsed == alreadyCollapsed) return;
-
-        if (collapsed) _settings.CollapsedGroups.Add(groupName);
-        else           _settings.CollapsedGroups.Remove(groupName);
-        _settings.Save();
-    }
-
-    // Distinct existing group names, offered as suggestions in the topic editor.
-    private IReadOnlyList<string> ExistingGroupNames() =>
-        _settings.Topics
-            .Select(t => t.GroupName?.Trim())
-            .Where(g => !string.IsNullOrEmpty(g))
-            .Select(g => g!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(g => g, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
 
     // Pushes current unread counts onto the rail badges. Cheap (in-memory counts);
     // safe to call after any rebuild or on every tracker change.
     private void RefreshBadges()
     {
         _allTopicsBadge?.Set(_unread.Total);
+        
         foreach (var (id, rail) in _railItems)
             rail.Badge.Set(_unread.CountFor(id));
+        
         // Folder badge = sum of unread across the group's topics.
         foreach (var (group, badge) in _groupBadges)
             badge.Set(_settings.Topics
                 .Where(t => string.Equals(t.GroupName?.Trim(), group, StringComparison.Ordinal))
                 .Sum(t => _unread.CountFor(t.Id)));
     }
-
-    private RailItem BuildTopicNavItem(TopicSettings topic, string? serverSubtitle)
+    
+    private RailItem BuildRailItem(TopicSettings topic)
     {
+        var showServer = _settings.Servers.Count > 1 && _settings.ShowServerLabel;
+        var serverSubtitle = showServer ? _settings.GetServer(topic.ServerId)?.DisplayLabel : null;
+        
         var pip = new Ellipse
         {
             Width = 8,
             Height = 8,
             Margin = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Fill = PipDisconnectedBrush,
+            Fill = _pipDisconnectedBrush,
         };
         
         var label = new System.Windows.Controls.TextBlock
@@ -305,7 +507,7 @@ public partial class MainWindow : FluentWindow
             FontSize = 12,
             Margin = new Thickness(6, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = PausedGlyphBrush,
+            Foreground = _pausedGlyphBrush,
             Visibility = Visibility.Collapsed,
         };
 
@@ -321,15 +523,19 @@ public partial class MainWindow : FluentWindow
             VerticalAlignment = VerticalAlignment.Center,
         };
         textStack.Children.Add(labelRow);
-        if (!string.IsNullOrEmpty(serverSubtitle))
-        {
-            textStack.Children.Add(new System.Windows.Controls.TextBlock
-            {
+
+        System.Windows.Controls.TextBlock? subtitle = null;
+        
+        if (!string.IsNullOrEmpty(serverSubtitle)) {
+
+            subtitle = new() {
                 Text = serverSubtitle,
                 FontSize = 11,
-                Foreground = PausedGlyphBrush,
+                Foreground = _pausedGlyphBrush,
                 Margin = new Thickness(0, 1, 0, 0),
-            });
+            };
+            
+            textStack.Children.Add(subtitle);
         }
 
         var content = new StackPanel { Orientation = Orientation.Horizontal };
@@ -359,7 +565,8 @@ public partial class MainWindow : FluentWindow
 
         WireDragDrop(item, topic.Id);
 
-        return new RailItem(item, pip, pauseGlyph, new IconBadge(icon));
+        return new RailItem(item, pip, pauseGlyph, new IconBadge(icon), label, subtitle,
+            TopicArrangement.GetTopicGroupName(topic));
     }
 
     private static void ApplyEnabledStyling(NavigationViewItem item, bool enabled)
@@ -372,26 +579,27 @@ public partial class MainWindow : FluentWindow
     private void RefreshTopicAdornments()
     {
         foreach (var state in _connections.GetTopicStates())
-        {
-            if (!_railItems.TryGetValue(state.TopicId, out var rail)) continue;
+            RefreshTopicAdornment(state.TopicId, state.Status);
+    }
 
-            rail.Pip.Fill = PipBrushFor(state.Status);
-            rail.PauseGlyph.Visibility = _gate.IsTopicPaused(state.TopicId)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-
-            var topic = _settings.GetTopicById(state.TopicId);
-            if (topic is not null)
-                ApplyEnabledStyling(rail.Item, topic.Enabled);
-        }
+    private void RefreshTopicAdornment(Guid topicId, TopicConnectionStatus? connectionStatus = null)
+    {
+        if (!_railItems.TryGetValue(topicId, out var rail)) return;
+        
+        rail.Pip.Fill = PipBrushFor(connectionStatus ?? _connections.GetTopicConnectionStatus(topicId));
+        rail.PauseGlyph.Visibility = _gate.IsTopicPaused(topicId)
+            ? Visibility.Visible :  Visibility.Collapsed;
+        
+        var topic = _settings.GetTopicById(topicId);
+        if (topic is not null)
+            ApplyEnabledStyling(rail.Item, topic.Enabled);
     }
 
     private static Brush PipBrushFor(TopicConnectionStatus status) => status switch
     {
-        TopicConnectionStatus.Connected    => PipConnectedBrush,
-        TopicConnectionStatus.Connecting   => PipConnectingBrush,
-        TopicConnectionStatus.Disconnected => PipDisconnectedBrush,
-        _                                  => PipDisconnectedBrush,
+        TopicConnectionStatus.Connected    => _pipConnectedBrush,
+        TopicConnectionStatus.Connecting   => _pipConnectingBrush,
+        _                                  => _pipDisconnectedBrush,
     };
 
     private void OnNavigationSelectionChanged(NavigationView sender, RoutedEventArgs args)
@@ -412,6 +620,7 @@ public partial class MainWindow : FluentWindow
         // Topic items carry their TopicId as Tag; "All topics" carries "" (string).
         var topicId = item.Tag is Guid id ? (Guid?)id : null;
         _feedVm.CurrentTopicId = topicId;
+        
         // Navigating to a feed is an explicit "I'm looking at this" — mark it read.
         _unread.SetActiveView(topicId is { } gid ? ActiveView.Topic(gid) : ActiveView.AllTopics);
     }
@@ -423,16 +632,16 @@ public partial class MainWindow : FluentWindow
     // logic needed.
     private async void OnAddTopicNavClicked(object sender, RoutedEventArgs e)
     {
-        e.Handled = true;
-
-        if (!await EnsureServerConfiguredAsync()) return;
-
         try
         {
-            var dialog = new TopicEditorDialog(existing: null, _settings.Servers, _settings.DefaultServerId, ExistingGroupNames()) { Owner = this };
+            e.Handled = true;
+
+            if (!await EnsureServerConfiguredAsync()) return;
+
+            var dialog = new TopicEditorDialog(existing: null, _settings.Servers, _settings.DefaultServerId, _topics.Arrangement.GroupNames) { Owner = this };
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
-            await _topicsVm.AddOrUpdateAsync(dialog.Result, original: null);
+            _topics.AddOrUpdate(dialog.Result, original: null);
         }
         catch (Exception ex)
         {
@@ -461,15 +670,9 @@ public partial class MainWindow : FluentWindow
     // (they operate on already-saved topics).
     private async Task<bool> EnsureServerConfiguredAsync()
     {
-        var url = _settings.DefaultServer.Url?.Trim() ?? string.Empty;
-        var valid = !string.IsNullOrEmpty(url)
-                    && Uri.TryCreate(url, UriKind.Absolute, out var u)
-                    && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
-
-        if (valid) return true;
-
+        if (_settings.IsDefaultServerUsable) return true;
+        
         await ShowServerNotConfiguredWarning();
-
         return false;
     }
 
@@ -530,24 +733,24 @@ public partial class MainWindow : FluentWindow
                 FontSize = 14,
             },
         };
-        enableItem.Click += async (_, _) => await _topicsVm.ToggleEnabledAsync(topic);
+        enableItem.Click += async (_, _) => _topics.ToggleEnabled(topic);
 
         var editItem = new System.Windows.Controls.MenuItem
         {
             Header = "Edit",
             Icon = new SymbolIcon { Symbol = SymbolRegular.Edit24, FontSize = 14 },
         };
-        editItem.Click += async (_, _) =>
+        editItem.Click += (_, _) =>
         {
             try
             {
-                var dialog = new TopicEditorDialog(topic, _settings.Servers, _settings.DefaultServerId, ExistingGroupNames()) { Owner = this };
+                var dialog = new TopicEditorDialog(topic, _settings.Servers, _settings.DefaultServerId, _topics.Arrangement.GroupNames) { Owner = this };
                 if (dialog.ShowDialog() != true || dialog.Result is null) return;
-                await _topicsVm.AddOrUpdateAsync(dialog.Result, original: topic);
+                _topics.AddOrUpdate(dialog.Result, original: topic);
             }
             catch (Exception ex)
             {
-                System.Windows.MessageBox.Show("Unexpected error: " + ex.Message);
+                MessageBox.Show("Unexpected error: " + ex.Message);
             }
         };
 
@@ -555,17 +758,17 @@ public partial class MainWindow : FluentWindow
         {
             Header = "Move up",
             Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowUp24, FontSize = 14 },
-            IsEnabled = _topicsVm.CanMoveTopic(topic, -1),
+            IsEnabled = _topics.Arrangement.CanMoveTopicWithinGroup(topic, -1),
         };
-        moveUp.Click += (_, _) => _topicsVm.MoveTopic(topic, -1);
+        moveUp.Click += (_, _) => _topics.Arrangement.MoveTopicWithinGroup(topic, -1);
 
         var moveDown = new System.Windows.Controls.MenuItem
         {
             Header = "Move down",
             Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowDown24, FontSize = 14 },
-            IsEnabled = _topicsVm.CanMoveTopic(topic, +1),
+            IsEnabled = _topics.Arrangement.CanMoveTopicWithinGroup(topic, +1),
         };
-        moveDown.Click += (_, _) => _topicsVm.MoveTopic(topic, +1);
+        moveDown.Click += (_, _) => _topics.Arrangement.MoveTopicWithinGroup(topic, +1);
 
         var moveToGroup = BuildMoveToGroupMenu(topic);
 
@@ -594,9 +797,10 @@ public partial class MainWindow : FluentWindow
     // nothing to offer (no groups and the topic is already ungrouped).
     private System.Windows.Controls.MenuItem? BuildMoveToGroupMenu(TopicSettings topic)
     {
-        var groups = _topicsVm.OrderedGroups();
+        var groupNames = _topics.Arrangement.OrderedGroupNames;
         var current = topic.GroupName?.Trim() ?? string.Empty;
-        if (groups.Count == 0 && current.Length == 0) return null;
+
+        if (groupNames.Count == 0 && current.Length == 0) return null;
 
         var root = new System.Windows.Controls.MenuItem
         {
@@ -604,7 +808,7 @@ public partial class MainWindow : FluentWindow
             Icon = new SymbolIcon { Symbol = SymbolRegular.FolderArrowRight24, FontSize = 14 },
         };
 
-        foreach (var g in groups)
+        foreach (var g in groupNames)
         {
             var item = new System.Windows.Controls.MenuItem
             {
@@ -612,18 +816,18 @@ public partial class MainWindow : FluentWindow
                 IsChecked = string.Equals(g, current, StringComparison.Ordinal),
             };
             var target = g;
-            item.Click += (_, _) => _topicsVm.MoveTopicToGroup(topic, target);
+            item.Click += (_, _) => _topics.Arrangement.MoveTopicToGroup(topic, target);
             root.Items.Add(item);
         }
 
-        if (groups.Count > 0) root.Items.Add(new Separator());
+        if (groupNames.Count > 0) root.Items.Add(new Separator());
 
         var ungrouped = new System.Windows.Controls.MenuItem
         {
             Header = "Ungrouped",
             IsChecked = current.Length == 0,
         };
-        ungrouped.Click += (_, _) => _topicsVm.MoveTopicToGroup(topic, null);
+        ungrouped.Click += (_, _) => _topics.Arrangement.MoveTopicToGroup(topic, null);
         root.Items.Add(ungrouped);
 
         return root;
@@ -638,17 +842,17 @@ public partial class MainWindow : FluentWindow
         {
             Header = "Move up",
             Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowUp24, FontSize = 14 },
-            IsEnabled = _topicsVm.CanMoveGroup(groupName, -1),
+            IsEnabled = _topics.Arrangement.CanMoveGroup(groupName, -1),
         };
-        up.Click += (_, _) => _topicsVm.MoveGroup(groupName, -1);
+        up.Click += (_, _) => _topics.Arrangement.MoveGroup(groupName, -1);
 
         var down = new System.Windows.Controls.MenuItem
         {
             Header = "Move down",
             Icon = new SymbolIcon { Symbol = SymbolRegular.ArrowDown24, FontSize = 14 },
-            IsEnabled = _topicsVm.CanMoveGroup(groupName, +1),
+            IsEnabled = _topics.Arrangement.CanMoveGroup(groupName, +1),
         };
-        down.Click += (_, _) => _topicsVm.MoveGroup(groupName, +1);
+        down.Click += (_, _) => _topics.Arrangement.MoveGroup(groupName, +1);
 
         menu.Items.Add(up);
         menu.Items.Add(down);
@@ -677,14 +881,7 @@ public partial class MainWindow : FluentWindow
             default: return; // Cancel
         }
 
-        try
-        {
-            await _topicsVm.RemoveAsync(topic, deleteHistory);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show("Unexpected error: " + ex.Message);
-        }
+        _topics.Remove(topic, deleteHistory);
     }
 
     /// <summary>
@@ -824,7 +1021,7 @@ public partial class MainWindow : FluentWindow
             _adorner.Update(_count);
         }
 
-        private void Detach()
+        public void Detach()
         {
             if (_adorner is null) return;
             AdornerLayer.GetAdornerLayer(_icon)?.Remove(_adorner);
@@ -859,7 +1056,7 @@ public partial class MainWindow : FluentWindow
 
             _badge = new Border
             {
-                Background = BadgeBrush,
+                Background = _badgeBrush,
                 CornerRadius = new CornerRadius(7),
                 MinWidth = 14,
                 Height = 14,
@@ -887,7 +1084,7 @@ public partial class MainWindow : FluentWindow
             InvalidateArrange();
         }
 
-        protected override int VisualChildrenCount => _children?.Count ?? 0;
+        protected override int VisualChildrenCount => _children.Count;
         protected override Visual GetVisualChild(int index) => _children[index];
 
         protected override Size MeasureOverride(Size constraint)
@@ -951,7 +1148,7 @@ public partial class MainWindow : FluentWindow
         if (_dragging is null) return;
 
         var targetIsTopic = target.Tag is Guid;
-        var targetIsFolder = target.Tag is string g && g.Length > 0;
+        var targetIsFolder = target.Tag is string {Length: > 0};
         var targetIsAllTopics = ReferenceEquals(target, AllTopicsItem);
 
         if (_dragging is Guid)
@@ -979,7 +1176,7 @@ public partial class MainWindow : FluentWindow
             // children, so a midpoint test would always read as "before".
             if (targetIsFolder)
             {
-                ShowLine(target, GroupGoesBefore(draggedGroup, (string)target.Tag));
+                ShowLine(target, _topics.Arrangement.GroupGoesBefore(draggedGroup, (string)target.Tag));
                 e.Effects = DragDropEffects.Move;
             }
             else ClearDrop();
@@ -1002,31 +1199,23 @@ public partial class MainWindow : FluentWindow
             {
                 var anchor = _settings.GetTopicById(anchorId);
                 var before = e.GetPosition(target).Y < target.ActualHeight / 2;
-                if (anchor is not null) _topicsVm.DropTopicRelativeTo(dragged, anchor, before);
+                if (anchor is not null) _topics.Arrangement.MoveTopicRelativeTo(dragged, anchor, before);
             }
             else if (ReferenceEquals(target, AllTopicsItem))
             {
-                _topicsVm.MoveTopicToGroup(dragged, null); // ungroup
+                _topics.Arrangement.MoveTopicToGroup(dragged, null); // ungroup
             }
-            else if (target.Tag is string group && group.Length > 0)
+            else if (target.Tag is string {Length: > 0} group)
             {
                 // Drop onto a folder → into that group, at the top.
-                var first = _topicsVm.FirstTopicInGroup(group);
-                if (first is not null) _topicsVm.DropTopicRelativeTo(dragged, first, before: true);
-                else                    _topicsVm.MoveTopicToGroup(dragged, group);
+                var first = _topics.Arrangement.FirstTopicInGroup(group);
+                if (first is not null) _topics.Arrangement.MoveTopicRelativeTo(dragged, first, before: true);
+                else                    _topics.Arrangement.MoveTopicToGroup(dragged, group);
             }
         }
-        else if (payload is string draggedGroup && target.Tag is string anchorGroup && anchorGroup.Length > 0)
-        {
-            _topicsVm.DropGroupRelativeTo(draggedGroup, anchorGroup, GroupGoesBefore(draggedGroup, anchorGroup));
-        }
+        else if (payload is string draggedGroup && target.Tag is string {Length: > 0} anchorGroup)
+            _topics.Arrangement.MoveGroupRelativeTo(draggedGroup, anchorGroup);
     }
-
-    // When reordering folders, a group dragged from below its anchor lands before it;
-    // from above, after it. Direction is implied by the current order, so dropping
-    // anywhere on a folder works regardless of where the cursor sits on it.
-    private bool GroupGoesBefore(string dragged, string anchor) =>
-        _settings.GroupOrder.IndexOf(dragged) > _settings.GroupOrder.IndexOf(anchor);
 
     private void ShowLine(UIElement target, bool atTop) =>
         SetDrop(target, "line", atTop, () => new InsertionAdorner(target, atTop));
@@ -1069,7 +1258,7 @@ public partial class MainWindow : FluentWindow
 
         private static Pen CreatePen()
         {
-            var pen = new Pen(BadgeBrush, 2);
+            var pen = new Pen(_badgeBrush, 2);
             pen.Freeze();
             return pen;
         }
@@ -1090,7 +1279,7 @@ public partial class MainWindow : FluentWindow
         public HighlightAdorner(UIElement adornedElement) : base(adornedElement) => IsHitTestVisible = false;
 
         private static Brush FrozenFill() { var b = new SolidColorBrush(Color.FromArgb(0x22, 0x00, 0x67, 0xC0)); b.Freeze(); return b; }
-        private static Pen CreatePen() { var p = new Pen(BadgeBrush, 1.5); p.Freeze(); return p; }
+        private static Pen CreatePen() { var p = new Pen(_badgeBrush, 1.5); p.Freeze(); return p; }
 
         protected override void OnRender(DrawingContext drawingContext)
         {

@@ -24,7 +24,6 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="FastEndpoints.Messaging" Version="8.1.0" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.4" />
@@ -75,10 +74,6 @@
     <Resource Include="assets\tray-connected.ico" />
     <Resource Include="assets\tray-degraded.ico" />
     <Resource Include="assets\tray-disconnected.ico" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Shared\Settings\" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,4 @@
-using FastEndpoints;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
 
 namespace NtfyDesktop.Features.Connections;

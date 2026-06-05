@@ -1,7 +1,9 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
+using NtfyDesktop.Features.Settings.Events;
 using NtfyDesktop.Features.Topics;
 
 namespace NtfyDesktop.Features.Settings;
@@ -50,16 +52,19 @@ public class AppSettings
         var json = JsonSerializer.Serialize(this, _jsonOptions);
         File.WriteAllText(_path, json);
     }
-
-    /// <summary>
-    /// Raised when something affecting how topics/servers are *displayed* changes
-    /// (server rename, the show-server-label toggle) — as opposed to the topic set
-    /// itself changing. The rail and feed re-render in response. (Events aren't
-    /// serialized, so this is safe on the settings model.)
-    /// </summary>
-    public event EventHandler? DisplayChanged;
-
-    public void RaiseDisplayChanged() => DisplayChanged?.Invoke(this, EventArgs.Empty);
+    
+    // Whether the default server has a usable http(s) URL. A topic added without one
+    // can't connect, so the rail's "add topic" path checks this up front.
+    public bool IsDefaultServerUsable
+    {
+        get
+        {
+            var url = DefaultServer.Url.Trim();
+            return !string.IsNullOrEmpty(url)
+                   && Uri.TryCreate(url, UriKind.Absolute, out var u)
+                   && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
+        }
+    }
 
     /// <summary>
     /// Migrates a pre-multi-server config: synthesizes a "Default" server from the
@@ -143,11 +148,17 @@ public class AppSettings
     /// </summary>
     public void RemoveServer(Guid serverId)
     {
+        // Capture the cascade-removed topic ids before removal so ServerDeleted can
+        // carry them — consumers handle the event after these topics are gone.
+        var removedTopicIds = Topics.Where(t => t.ServerId == serverId).Select(t => t.Id).ToList();
+
         Servers.RemoveAll(s => s.Id == serverId);
         Topics.RemoveAll(t => t.ServerId == serverId);
 
         if (DefaultServerId == serverId)
             DefaultServerId = Servers.Count > 0 ? Servers[0].Id : Guid.Empty;
+
+        _ = new ServerDeleted(serverId, removedTopicIds).PublishAsync();
     }
 
     #region props

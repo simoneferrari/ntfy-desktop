@@ -1,5 +1,7 @@
-using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.History;
+using NtfyDesktop.Features.History.Events;
+using NtfyDesktop.Features.Unread.Events;
 
 namespace NtfyDesktop.Features.Unread;
 
@@ -44,22 +46,18 @@ public sealed class UnreadTracker
     private ActiveView _activeView = ActiveView.None;
     private bool _windowActive;
 
-    /// <summary>Fires whenever a count changes. Handlers should re-read
-    /// <see cref="Total"/> / <see cref="CountFor"/> (cheap, in-memory).</summary>
-    public event EventHandler? Changed;
-
-    public UnreadTracker(HistoryRepository history, ConnectionManager connections)
+    public UnreadTracker(HistoryRepository history, EventBus bus)
     {
         _history = history;
         _counts = history.GetUnreadCounts();
 
-        history.MessageInserted += OnMessageInserted;
-        // Rows removed (feed Clear / delete-message / retention sweep) — incremental
-        // tracking can't see deletes, so re-seed from the DB.
-        history.HistoryChanged += (_, _) => Refresh();
-        // Topic added/removed (incl. server deletion) — counts may now reference
-        // topics that are gone, or miss a freshly-added one. Re-seed from the DB.
-        connections.TopicsChanged += (_, _) => Refresh();
+        // Hot path: a message arrived — increment incrementally.
+        bus.Subscribe<MessageInserted>(this, e => OnMessageInserted(e.Message));
+        // Rows removed (feed Clear / delete-message / by-topic / retention sweep) —
+        // incremental tracking can't see deletes, so re-seed from the DB. Topic-set
+        // changes that affect counts always go through a delete, so this also covers
+        // topic removal-with-history.
+        bus.Subscribe<MessagesDeleted>(this, _ => Refresh());
     }
 
     public int Total
@@ -78,7 +76,7 @@ public sealed class UnreadTracker
     public void Refresh()
     {
         lock (_lock) _counts = _history.GetUnreadCounts();
-        Changed?.Invoke(this, EventArgs.Empty);
+        _ = new UnreadCountChanged(null).PublishAsync();
     }
 
     /// <summary>Record which feed is on screen. Navigating to a feed marks it
@@ -123,7 +121,7 @@ public sealed class UnreadTracker
         else                        MarkAllRead();
     }
 
-    private void OnMessageInserted(object? sender, HistoryMessage m)
+    private void OnMessageInserted(HistoryMessage m)
     {
         bool viewing;
         lock (_lock)
@@ -137,6 +135,6 @@ public sealed class UnreadTracker
         if (viewing)
             _history.MarkTopicRead(m.TopicId);
 
-        Changed?.Invoke(this, EventArgs.Empty);
+        _ = new UnreadCountChanged(m.TopicId).PublishAsync();
     }
 }

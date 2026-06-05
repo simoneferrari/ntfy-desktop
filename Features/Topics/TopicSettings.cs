@@ -22,13 +22,14 @@ public class TopicSettings
     public string? GroupName { get; set; }
 
     public bool Enabled { get; set; } = true;
-    public bool IsPaused { get; set; } = false;
-    public Priority? MinPriority { get; set; } = null;
+    public bool IsPaused { get; set; }
+
+    public Priority? MinPriority { get; set; }
 
     // null = inherit global; true/false = override global
-    public bool? ActiveHoursEnabled { get; set; } = null;
-    public TimeOnly ActiveHoursStart { get; set; } = new TimeOnly(9, 0);
-    public TimeOnly ActiveHoursEnd { get; set; } = new TimeOnly(18, 0);
+    public bool? ActiveHoursEnabled { get; set; }
+    public TimeOnly ActiveHoursStart { get; set; } = new(9, 0);
+    public TimeOnly ActiveHoursEnd { get; set; } = new(18, 0);
 
     /// <summary>What to show in the UI: friendly name if set, otherwise the topic name.</summary>
     public string EffectiveDisplayName =>

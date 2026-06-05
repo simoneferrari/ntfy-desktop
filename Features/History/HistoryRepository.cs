@@ -1,18 +1,14 @@
 using System.IO;
 using Microsoft.Data.Sqlite;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
+using NtfyDesktop.Features.History.Events;
 
 namespace NtfyDesktop.Features.History;
 
 public class HistoryRepository
 {
     private readonly string _dbPath;
-
-    public event EventHandler<HistoryMessage>? MessageInserted;
-
-    /// <summary>Fires after rows are removed (single, by-topic, all, or a retention
-    /// sweep). Lets unread-count consumers re-sync without coupling to each caller.</summary>
-    public event EventHandler? HistoryChanged;
 
     public HistoryRepository()
     {
@@ -132,7 +128,7 @@ public class HistoryRepository
         cmd.ExecuteNonQuery();
 
         var histMsg = ToHistoryMessage(message, topicId);
-        MessageInserted?.Invoke(this, histMsg);
+        _ = new MessageInserted(histMsg).PublishAsync();
 
         // Retention sweeps run on a timer in HistoryRetentionService, not per-Insert.
     }
@@ -202,30 +198,31 @@ public class HistoryRepository
         cmd.ExecuteNonQuery();
     }
 
-    public void DeleteAll()
+    public void DeleteAll(MessageDeletionSource source)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages";
-        RaiseIfDeleted(cmd.ExecuteNonQuery());
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, source);
     }
 
-    public void DeleteByTopicId(Guid topicId)
+    public void DeleteByTopicId(Guid topicId, MessageDeletionSource source)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE topic_id = @id";
         cmd.Parameters.AddWithValue("@id", topicId.ToString());
-        RaiseIfDeleted(cmd.ExecuteNonQuery());
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId, source);
     }
 
-    public void DeleteByRowId(long rowId)
+    public void DeleteByRowId(long rowId, MessageDeletionSource source)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", rowId);
-        RaiseIfDeleted(cmd.ExecuteNonQuery());
+        // Single-row delete spans no single topic — signal a broad change (null).
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, source);
     }
 
     public void DeleteOlderThan(int days)
@@ -235,13 +232,16 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE timestamp < @cutoff";
         cmd.Parameters.AddWithValue("@cutoff", cutoff);
-        RaiseIfDeleted(cmd.ExecuteNonQuery());
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, MessageDeletionSource.Retention);
     }
 
-    private void RaiseIfDeleted(int rowsAffected)
+    // null TopicId = broad/unscoped deletion (all, retention, single row) → consumers
+    // re-sync; a value = that topic's messages were removed wholesale. Source lets a
+    // consumer ignore deletes it originated itself (the feed).
+    private static void PublishIfDeleted(int rowsAffected, Guid? topicId, MessageDeletionSource source)
     {
         if (rowsAffected > 0)
-            HistoryChanged?.Invoke(this, EventArgs.Empty);
+            _ = new MessagesDeleted(topicId, source).PublishAsync();
     }
 
     private SqliteConnection Open()

@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
-using System.Windows;
-using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NtfyDesktop.Core.Messaging;
+using NtfyDesktop.Features.Connections.Events;
+using NtfyDesktop.Features.Settings.Events;
+using NtfyDesktop.Features.Topics.Events;
 
 namespace NtfyDesktop.Features.Connections;
 
@@ -18,16 +20,35 @@ public sealed partial class ConnectionsViewModel : ObservableObject
 
     [ObservableProperty] private bool _isEmpty = true;
 
-    public ConnectionsViewModel(ConnectionManager connections)
+    public ConnectionsViewModel(ConnectionManager connections, EventBus bus)
     {
         _connections = connections;
-        _connections.ConnectionStatusChanged += OnChanged;
-        _connections.TopicsChanged += OnChanged;
+
+        // Status — high-frequency: replace just the affected row, no rebuild.
+        bus.Subscribe<TopicConnectionStatusChanged>(this, OnTopicConnectionStatusChanged, ThreadOption.UIThread);
+
+        // Structural / display — low-frequency: rebuild the row set (recomputes the
+        // ShowServer cross-cut). Deletes are covered too — Refresh sources rows from
+        // settings, which no longer list the removed topics.
+        bus.Subscribe<TopicAdded>(this, _ => Refresh(), ThreadOption.UIThread);
+        bus.Subscribe<TopicUpdated>(this, _ => Refresh(), ThreadOption.UIThread);
+        bus.Subscribe<TopicDeleted>(this, _ => Refresh(), ThreadOption.UIThread);
+        bus.Subscribe<ServerDisplayChanged>(this, _ => Refresh(), ThreadOption.UIThread);
+        bus.Subscribe<ServerDeleted>(this, _ => Refresh(), ThreadOption.UIThread);
+
         Refresh();
     }
 
-    private void OnChanged(object? sender, EventArgs e) =>
-        Application.Current?.Dispatcher.Invoke(Refresh);
+    private void OnTopicConnectionStatusChanged(TopicConnectionStatusChanged e)
+    {
+        for (var i = 0; i < Rows.Count; i++)
+        {
+            if (Rows[i].TopicId != e.TopicId) continue;
+            Rows[i] = Rows[i].WithStatus(e.Status, e.LastError);
+            break;
+        }
+        DisconnectAllCommand.NotifyCanExecuteChanged();
+    }
 
     private void Refresh()
     {
@@ -56,50 +77,4 @@ public sealed partial class ConnectionsViewModel : ObservableObject
 
     private bool CanDisconnectAll() =>
         Rows.Any(r => r.ConnectionStatus != TopicConnectionStatus.Disconnected);
-}
-
-public sealed class TopicConnectionRow
-{
-    private static readonly Brush ConnectedBrush    = Frozen(Color.FromRgb(0x16, 0xA3, 0x4A));
-    private static readonly Brush ConnectingBrush   = Frozen(Color.FromRgb(0xEA, 0x58, 0x0C));
-    private static readonly Brush DisconnectedBrush = Frozen(Color.FromRgb(0xDC, 0x26, 0x26));
-
-    private static Brush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
-
-    public TopicConnectionRow(TopicConnectionState state, bool showServer)
-    {
-        TopicId = state.TopicId;
-        TopicName = state.TopicName;
-        DisplayName = state.DisplayName;
-        ServerName = state.ServerName;
-        ShowServer = showServer && !string.IsNullOrEmpty(state.ServerName);
-        ConnectionStatus = state.Status;
-        LastError = state.LastError;
-    }
-
-    public Guid TopicId { get; }
-    public string TopicName { get; }
-    public string DisplayName { get; }
-    public string ServerName { get; }
-    public bool ShowServer { get; }
-    public TopicConnectionStatus ConnectionStatus { get; }
-    public string? LastError { get; }
-
-    public string StatusText => ConnectionStatus switch
-    {
-        TopicConnectionStatus.Connected    => "Connected",
-        TopicConnectionStatus.Connecting   => "Connecting…",
-        TopicConnectionStatus.Disconnected => "Disconnected",
-        _ => "—",
-    };
-
-    public Brush StatusBrush => ConnectionStatus switch
-    {
-        TopicConnectionStatus.Connected    => ConnectedBrush,
-        TopicConnectionStatus.Connecting   => ConnectingBrush,
-        TopicConnectionStatus.Disconnected => DisconnectedBrush,
-        _ => DisconnectedBrush,
-    };
-
-    public bool HasError => !string.IsNullOrEmpty(LastError);
 }

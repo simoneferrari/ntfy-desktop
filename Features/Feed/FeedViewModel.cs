@@ -2,11 +2,18 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections;
+using NtfyDesktop.Features.Connections.Events;
 using NtfyDesktop.Features.History;
+using NtfyDesktop.Features.History.Events;
 using NtfyDesktop.Features.Notifications;
+using NtfyDesktop.Features.Notifications.Events;
 using NtfyDesktop.Features.Settings;
+using NtfyDesktop.Features.Settings.Events;
+using NtfyDesktop.Features.Topics;
+using NtfyDesktop.Features.Topics.Events;
 
 namespace NtfyDesktop.Features.Feed;
 
@@ -14,27 +21,30 @@ namespace NtfyDesktop.Features.Feed;
 // CurrentTopicId == null means "all topics".
 public sealed partial class FeedViewModel : ObservableObject
 {
-    private const int MaxDisplayed = 500;
+    private const int MAX_DISPLAYED = 500;
 
     private readonly HistoryRepository _history;
     private readonly ConnectionManager _connections;
     private readonly NotificationGate _gate;
     private readonly AppSettings _settings;
 
-    [ObservableProperty] private Guid? _currentTopicId;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Title))]
+    private Guid? _currentTopicId;
+
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private Priority _minPriority = Priority.Min;
     [ObservableProperty] private bool _isEmpty = true;
     [ObservableProperty] private bool _isLoading;
 
-    // True when CurrentTopicId is set and its connection is unhealthy
-    // (not Connected and not Paused). Drives the Reconnect button in the header.
+    // True when CurrentTopicId is set, enabled, unpaused and not Connected.
+    // Drives the Reconnect button in the header.
     [ObservableProperty] private bool _showReconnectButton;
 
-    public ObservableCollection<HistoryMessage> Messages { get; } = new();
+    public ObservableCollection<HistoryMessage> Messages { get; } = [];
 
     public string Title =>
-        CurrentTopicId is null ? "All topics" : (TopicName() ?? "Topic");
+        CurrentTopicId is null ? "All topics" : TopicName() ?? "Topic";
 
     public string Subtitle =>
         CurrentTopicId is null
@@ -44,64 +54,57 @@ public sealed partial class FeedViewModel : ObservableObject
     private string? TopicName() =>
         CurrentTopicId is { } id ? _settings.GetTopicById(id)?.EffectiveDisplayName : null;
 
-    public FeedViewModel(HistoryRepository history, ConnectionManager connections, NotificationGate gate, AppSettings settings)
+    public FeedViewModel(HistoryRepository history, ConnectionManager connections,
+        NotificationGate gate, AppSettings settings, EventBus bus)
     {
         _history = history;
         _connections = connections;
         _gate = gate;
         _settings = settings;
-        history.MessageInserted += OnHistoryMessageInserted;
-        connections.ConnectionStatusChanged += OnConnectionsChanged;
-        // Topic set changed (added/removed, e.g. via server deletion) — reload so the
-        // feed drops messages whose topic/history was removed.
-        connections.TopicsChanged += OnTopicsChanged;
-        // Server rename / show-server-label toggle — re-enrich rows with new labels.
-        settings.DisplayChanged += OnTopicsChanged;
-        gate.GlobalStatusChanged += OnGateChanged;
-        gate.TopicPauseChanged += OnTopicPauseChanged;
+
+        // All handlers run on the UI thread (the bus marshals), so they touch Messages
+        // and observable state directly — no Dispatcher.Invoke here.
+        bus.Subscribe<MessageInserted>(this, e => OnMessageInserted(e.Message), ThreadOption.UIThread);
+        bus.Subscribe<MessagesDeleted>(this, OnMessagesDeleted, ThreadOption.UIThread);
+
+        // Topic renamed / server-moved / enabled flip — re-enrich its rows and, if it's
+        // the current topic, refresh the header + Reconnect button.
+        bus.Subscribe<TopicUpdated>(this, e => OnTopicUpdated(e.Topic), ThreadOption.UIThread);
+        // Server rename / show-label toggle / count change — re-enrich server labels.
+        bus.Subscribe<ServerDisplayChanged>(this, _ => ReEnrichVisibleRows(), ThreadOption.UIThread);
+
+        // Reconnect button reflects the current topic's connection + pause state.
+        bus.Subscribe<TopicConnectionStatusChanged>(this,
+            e => { if (e.TopicId == CurrentTopicId) RefreshReconnectVisibility(); }, ThreadOption.UIThread);
+        bus.Subscribe<TopicNotificationsStatusChanged>(this,
+            e => { if (e.TopicId == CurrentTopicId) RefreshReconnectVisibility(); }, ThreadOption.UIThread);
+        bus.Subscribe<NotificationsStatusChanged>(this, _ => RefreshReconnectVisibility(), ThreadOption.UIThread);
+
         _ = ReloadAsync();
     }
-
-    private void OnConnectionsChanged(object? sender, EventArgs e) =>
-        Application.Current?.Dispatcher.Invoke(RefreshReconnectVisibility);
-
-    private void OnTopicsChanged(object? sender, EventArgs e) =>
-        Application.Current?.Dispatcher.Invoke(() => _ = ReloadAsync());
-
-    private void OnGateChanged(object? sender, EventArgs e) =>
-        Application.Current?.Dispatcher.Invoke(RefreshReconnectVisibility);
-
-    private void OnTopicPauseChanged(object? sender, Guid topicId) =>
-        Application.Current?.Dispatcher.Invoke(RefreshReconnectVisibility);
 
     partial void OnCurrentTopicIdChanged(Guid? value)
     {
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Subtitle));
         RefreshReconnectVisibility();
+
         _ = ReloadAsync();
     }
 
     private void RefreshReconnectVisibility()
     {
-        if (CurrentTopicId is not { } id)
+        // Offer Reconnect only for the currently-viewed topic when it's enabled (a
+        // disabled topic has no socket, so reconnect is a no-op), not paused (pause only
+        // gates toasts, not the socket), and not already Connected.
+        if (CurrentTopicId is not { } id || _settings.GetTopicById(id) is not { Enabled: true })
         {
             ShowReconnectButton = false;
             return;
         }
-        var state = _connections.GetTopicStates()
-            .FirstOrDefault(t => t.TopicId == id);
-        if (state is null)
-        {
-            ShowReconnectButton = false;
-            return;
-        }
-        // Hide Reconnect when the topic is paused — the socket may be Connected
-        // even when paused (pause only gates toasts), but if it's not Connected
-        // and the topic is paused, "reconnect" doesn't really make sense as the
-        // primary call to action.
+
         ShowReconnectButton = !_gate.IsTopicPaused(id)
-            && state.Status != TopicConnectionStatus.Connected;
+            && _connections.GetTopicConnectionStatus(id) != TopicConnectionStatus.Connected;
     }
 
     [RelayCommand]
@@ -110,6 +113,7 @@ public sealed partial class FeedViewModel : ObservableObject
         if (CurrentTopicId is { } id)
             _connections.ReconnectTopic(id);
     }
+
     partial void OnSearchTextChanged(string value) => _ = ReloadAsync();
     partial void OnMinPriorityChanged(Priority value) => _ = ReloadAsync();
 
@@ -125,7 +129,7 @@ public sealed partial class FeedViewModel : ObservableObject
 
         var loaded = await Task.Run(() =>
         {
-            var raw = _history.Query(topicId: topicId, minPriority: minP, limit: MaxDisplayed);
+            var raw = _history.Query(topicId: topicId, minPriority: minP, limit: MAX_DISPLAYED);
             var list = string.IsNullOrWhiteSpace(search)
                 ? raw
                 : raw.Where(m => Matches(m, search)).ToList();
@@ -142,7 +146,7 @@ public sealed partial class FeedViewModel : ObservableObject
         });
     }
 
-    private void OnHistoryMessageInserted(object? sender, HistoryMessage m)
+    private void OnMessageInserted(HistoryMessage m)
     {
         if (CurrentTopicId is { } id && m.TopicId != id) return;
         if (m.Priority < MinPriority) return;
@@ -150,13 +154,54 @@ public sealed partial class FeedViewModel : ObservableObject
 
         Enrich(m, allTopics: CurrentTopicId is null);
 
-        Application.Current?.Dispatcher.Invoke((Action) (() =>
+        Messages.Insert(0, m);
+        while (Messages.Count > MAX_DISPLAYED)
+            Messages.RemoveAt(Messages.Count - 1);
+        IsEmpty = false;
+    }
+
+    private void OnMessagesDeleted(MessagesDeleted e)
+    {
+        // The feed removes its own rows locally (Clear / delete-message) — ignore the echo.
+        if (e.Source == MessageDeletionSource.Feed) return;
+
+        if (e.TopicId is { } topicId)
         {
-            Messages.Insert(0, m);
-            while (Messages.Count > MaxDisplayed)
-                Messages.RemoveAt(Messages.Count - 1);
-            IsEmpty = false;
-        }));
+            // A topic's messages were removed wholesale — prune matching rows in place.
+            for (var i = Messages.Count - 1; i >= 0; i--)
+                if (Messages[i].TopicId == topicId)
+                    Messages.RemoveAt(i);
+            IsEmpty = Messages.Count == 0;
+        }
+        else
+        {
+            // Broad/unscoped deletion (all, retention) — re-sync from the DB.
+            _ = ReloadAsync();
+        }
+    }
+
+    private void OnTopicUpdated(TopicSettings topic)
+    {
+        // Re-enrich any visible rows for this topic (display name / server label).
+        foreach (var m in Messages)
+            if (m.TopicId == topic.Id)
+                Enrich(m, allTopics: CurrentTopicId is null);
+
+        // If it's the topic we're viewing, its name (Title/Subtitle) and enabled/connection
+        // state (Reconnect button) may have changed.
+        if (topic.Id == CurrentTopicId)
+        {
+            OnPropertyChanged(nameof(Title));
+            OnPropertyChanged(nameof(Subtitle));
+            RefreshReconnectVisibility();
+        }
+    }
+
+    private void ReEnrichVisibleRows()
+    {
+        var allTopics = CurrentTopicId is null;
+        foreach (var m in Messages)
+            Enrich(m, allTopics);
     }
 
     // Populates the message's display-only fields (friendly topic label + server)
@@ -186,9 +231,9 @@ public sealed partial class FeedViewModel : ObservableObject
     private void Clear()
     {
         if (CurrentTopicId is { } id)
-            _history.DeleteByTopicId(id);
+            _history.DeleteByTopicId(id, MessageDeletionSource.Feed);
         else
-            _history.DeleteAll();
+            _history.DeleteAll(MessageDeletionSource.Feed);
 
         Messages.Clear();
         IsEmpty = true;
@@ -198,7 +243,7 @@ public sealed partial class FeedViewModel : ObservableObject
     private void DeleteMessage(HistoryMessage? message)
     {
         if (message is null) return;
-        _history.DeleteByRowId(message.RowId);
+        _history.DeleteByRowId(message.RowId, MessageDeletionSource.Feed);
         Messages.Remove(message);
         IsEmpty = Messages.Count == 0;
     }
