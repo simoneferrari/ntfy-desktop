@@ -11,6 +11,10 @@ public static class FeedFeature
         {
             services.AddSingleton<FeedViewModel>();
             services.AddTransient<FeedPage>();
+
+            // Inline image attachments: shared download/cache service + its periodic sweep.
+            services.AddSingleton<AttachmentImageService>();
+            services.AddHostedService<AttachmentCacheSweepService>();
         }
         
     }

@@ -31,6 +31,9 @@ public sealed record NtfyMessage
     [JsonPropertyName("click")]
     public string? Click { get; init; }
 
+    [JsonPropertyName("attachment")]
+    public NtfyAttachment? Attachment { get; init; }
+
     [JsonPropertyName("expires")]
     public long? Expires { get; init; }
 

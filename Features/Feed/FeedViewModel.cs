@@ -27,6 +27,7 @@ public sealed partial class FeedViewModel : ObservableObject
     private readonly ConnectionManager _connections;
     private readonly NotificationGate _gate;
     private readonly AppSettings _settings;
+    private readonly AttachmentImageService _images;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Title))]
@@ -55,12 +56,13 @@ public sealed partial class FeedViewModel : ObservableObject
         CurrentTopicId is { } id ? _settings.GetTopicById(id)?.EffectiveDisplayName : null;
 
     public FeedViewModel(HistoryRepository history, ConnectionManager connections,
-        NotificationGate gate, AppSettings settings, EventBus bus)
+        NotificationGate gate, AppSettings settings, AttachmentImageService images, EventBus bus)
     {
         _history = history;
         _connections = connections;
         _gate = gate;
         _settings = settings;
+        _images = images;
 
         // All handlers run on the UI thread (the bus marshals), so they touch Messages
         // and observable state directly — no Dispatcher.Invoke here.
@@ -140,7 +142,7 @@ public sealed partial class FeedViewModel : ObservableObject
         await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             Messages.Clear();
-            foreach (var m in loaded) Messages.Add(m);
+            foreach (var m in loaded) { Messages.Add(m); EnsureAttachmentLoaded(m); }
             IsEmpty = Messages.Count == 0;
             IsLoading = false;
         });
@@ -155,6 +157,7 @@ public sealed partial class FeedViewModel : ObservableObject
         Enrich(m, allTopics: CurrentTopicId is null);
 
         Messages.Insert(0, m);
+        EnsureAttachmentLoaded(m);
         while (Messages.Count > MAX_DISPLAYED)
             Messages.RemoveAt(Messages.Count - 1);
         IsEmpty = false;
@@ -252,4 +255,59 @@ public sealed partial class FeedViewModel : ObservableObject
     // SafeUrl.Open silently no-ops if the URL is missing or fails the allow-list.
     [RelayCommand]
     private void OpenClick(HistoryMessage? message) => Domain.SafeUrl.Open(message?.Click);
+
+    /// <summary>
+    /// Downloads + decodes a message's inline image once. Called as messages enter the feed
+    /// (load + live insert); idempotent via the per-message guard, and the service caches +
+    /// caps concurrency so a feed full of images doesn't stampede the server. Must be called
+    /// on the UI thread — the AttachmentImage assignment raises PropertyChanged.
+    /// </summary>
+    public async void EnsureAttachmentLoaded(HistoryMessage message)
+    {
+        if (!message.HasImageAttachment || message.ImageLoadStarted) return;
+        message.ImageLoadStarted = true;
+
+        var image = await _images.LoadAsync(message);
+        if (image is not null) message.AttachmentImage = image;
+    }
+
+    // Extensions we won't hand to ShellExecute — opening one would *run* it, and a publisher
+    // controls the attachment. For these (and any download failure) we fall back to the
+    // browser, which downloads rather than executes, leaving the choice to the user.
+    private static readonly HashSet<string> _unsafeExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".com", ".scr", ".pif", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe",
+        ".js", ".jse", ".wsf", ".wsh", ".msi", ".msp", ".reg", ".jar", ".hta", ".cpl",
+        ".lnk", ".inf", ".dll", ".sh",
+    };
+
+    // Open an attachment by downloading it (auth-aware, server-hosted files included) to the
+    // local cache with its real extension, then launching it with the user's default app for
+    // that type — image viewer, Notepad, PDF reader, etc. This both authenticates (the browser
+    // can't) and lets Windows pick the right handler instead of prompting. Falls back to
+    // opening the URL in the browser for executable types or any download failure.
+    [RelayCommand]
+    private async Task OpenAttachment(HistoryMessage? message)
+    {
+        var attachment = message?.Attachment;
+        var url = attachment?.Url;
+        if (attachment is null || string.IsNullOrEmpty(url)) return;
+
+        var path = await _images.EnsureFileAsync(attachment, message!.TopicId);
+        if (path is not null && !_unsafeExtensions.Contains(System.IO.Path.GetExtension(path)))
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true,
+                });
+                return;
+            }
+            catch { /* fall through to opening the URL */ }
+        }
+
+        Domain.SafeUrl.Open(url);
+    }
 }

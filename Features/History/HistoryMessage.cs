@@ -26,6 +26,42 @@ public partial class HistoryMessage : ObservableObject
     /// <summary>True when Click is a non-empty http(s) URL the app will follow.</summary>
     public bool HasClick => SafeUrl.IsAllowed(Click);
 
+    /// <summary>Optional file attached to the message (image rendered inline, others as a chip).</summary>
+    public NtfyAttachment? Attachment { get; set; }
+
+    /// <summary>The attachment is an image with a usable http(s) URL — render it inline.</summary>
+    public bool HasImageAttachment => Attachment is { IsImage: true } && SafeUrl.IsAllowed(Attachment.Url);
+
+    /// <summary>The attachment is a non-image file with a usable URL — show a link chip instead.</summary>
+    public bool HasFileAttachment => Attachment is { IsImage: false } && SafeUrl.IsAllowed(Attachment.Url);
+
+    /// <summary>Chip label for a non-image attachment: filename, plus size when known.</summary>
+    public string AttachmentLabel
+    {
+        get
+        {
+            var name = string.IsNullOrWhiteSpace(Attachment?.Name) ? "attachment" : Attachment!.Name!;
+            return Attachment?.Size is { } size && size > 0 ? $"{name} · {FormatSize(size)}" : name;
+        }
+    }
+
+    /// <summary>The decoded inline image, populated asynchronously by the feed once the row
+    /// is realized (see FeedViewModel.EnsureAttachmentLoaded). Null until loaded / on failure.</summary>
+    [ObservableProperty]
+    private System.Windows.Media.ImageSource? _attachmentImage;
+
+    /// <summary>Guards against re-triggering the async load when the virtualized row recycles.</summary>
+    public bool ImageLoadStarted { get; set; }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1) { size /= 1024; unit++; }
+        return unit == 0 ? $"{bytes} {units[unit]}" : $"{size:0.#} {units[unit]}";
+    }
+
     // Display-only fields populated by FeedViewModel from current settings (the
     // repository doesn't know about display names or servers).
 

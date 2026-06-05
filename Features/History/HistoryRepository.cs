@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
@@ -47,6 +48,11 @@ public class HistoryRepository
         // existing table (kept as-is by CREATE TABLE IF NOT EXISTS) lacks them.
         EnsureColumn(conn, "topic_id");
         EnsureColumn(conn, "server_id");
+
+        // Attachment metadata, stored as the raw ntfy "attachment" JSON object
+        // ({ name, type, size, expires, url }). A single column keeps the migration
+        // trivial and is forward-compatible if ntfy adds fields.
+        EnsureColumn(conn, "attachment");
 
         // Unread tracking (0 = unread, 1 = read). When the column is added to an
         // existing database, mark all pre-existing rows read so the user doesn't
@@ -153,9 +159,9 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO messages
-                (message_id, topic, topic_id, server_id, timestamp, priority, title, body, tags, click)
+                (message_id, topic, topic_id, server_id, timestamp, priority, title, body, tags, click, attachment)
             VALUES
-                (@mid, @topic, @topicId, @serverId, @ts, @priority, @title, @body, @tags, @click)
+                (@mid, @topic, @topicId, @serverId, @ts, @priority, @title, @body, @tags, @click, @attachment)
             """;
         cmd.Parameters.AddWithValue("@mid", message.Id);
         cmd.Parameters.AddWithValue("@topic", message.Topic);
@@ -168,6 +174,7 @@ public class HistoryRepository
         cmd.Parameters.AddWithValue("@tags",
             (object?)(message.Tags?.Count > 0 ? string.Join(",", message.Tags) : null) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@click", (object?)message.Click ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@attachment", (object?)SerializeAttachment(message.Attachment) ?? DBNull.Value);
         var inserted = cmd.ExecuteNonQuery() > 0; // INSERT OR IGNORE → 0 when message_id already stored
 
         // Advance the topic's catch-up cursor (forward only). Runs even when the row was
@@ -339,47 +346,75 @@ public class HistoryRepository
     public void DeleteAll(MessageDeletionSource source)
     {
         using var conn = Open();
+        // Capture attachment URLs before the rows go, so their cache files can be dropped.
+        var urls = SelectAttachmentUrls(conn, "1 = 1");
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages";
-        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, source);
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, source, urls);
     }
 
     public void DeleteByTopicId(Guid topicId, MessageDeletionSource source)
     {
         using var conn = Open();
+        var urls = SelectAttachmentUrls(conn, "topic_id = @id",
+            c => c.Parameters.AddWithValue("@id", topicId.ToString()));
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE topic_id = @id";
         cmd.Parameters.AddWithValue("@id", topicId.ToString());
-        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId, source);
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId, source, urls);
     }
 
     public void DeleteByRowId(long rowId, MessageDeletionSource source)
     {
         using var conn = Open();
+        var urls = SelectAttachmentUrls(conn, "id = @id",
+            c => c.Parameters.AddWithValue("@id", rowId));
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", rowId);
         // Single-row delete spans no single topic — signal a broad change (null).
-        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, source);
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, source, urls);
     }
 
     public void DeleteOlderThan(int days)
     {
         var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeSeconds();
         using var conn = Open();
+        var urls = SelectAttachmentUrls(conn, "timestamp < @cutoff",
+            c => c.Parameters.AddWithValue("@cutoff", cutoff));
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE timestamp < @cutoff";
         cmd.Parameters.AddWithValue("@cutoff", cutoff);
-        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, MessageDeletionSource.Retention);
+        PublishIfDeleted(cmd.ExecuteNonQuery(), topicId: null, MessageDeletionSource.Retention, urls);
+    }
+
+    // Attachment URLs of the rows matching a delete predicate, gathered just before the
+    // DELETE so a consumer (the attachment cache) can purge their files. Empty when none.
+    private static List<string> SelectAttachmentUrls(SqliteConnection conn, string predicate, Action<SqliteCommand>? bind = null)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT attachment FROM messages WHERE ({predicate}) AND attachment IS NOT NULL";
+        bind?.Invoke(cmd);
+
+        var urls = new List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var url = DeserializeAttachment(reader.IsDBNull(0) ? null : reader.GetString(0))?.Url;
+            if (!string.IsNullOrEmpty(url)) urls.Add(url);
+        }
+        return urls;
     }
 
     // null TopicId = broad/unscoped deletion (all, retention, single row) → consumers
     // re-sync; a value = that topic's messages were removed wholesale. Source lets a
-    // consumer ignore deletes it originated itself (the feed).
-    private static void PublishIfDeleted(int rowsAffected, Guid? topicId, MessageDeletionSource source)
+    // consumer ignore deletes it originated itself (the feed). urls = attachment URLs of
+    // the removed rows, for cache cleanup.
+    private static void PublishIfDeleted(int rowsAffected, Guid? topicId, MessageDeletionSource source,
+        IReadOnlyList<string>? urls = null)
     {
         if (rowsAffected > 0)
-            _ = new MessagesDeleted(topicId, source).PublishAsync();
+            _ = new MessagesDeleted(topicId, source, urls).PublishAsync();
     }
 
     private SqliteConnection Open()
@@ -406,6 +441,7 @@ public class HistoryRepository
             Body = NullStr("body"),
             Tags = NullStr("tags"),
             Click = NullStr("click"),
+            Attachment = DeserializeAttachment(NullStr("attachment")),
         };
     }
 
@@ -420,5 +456,16 @@ public class HistoryRepository
         Body = m.Message,
         Tags = m.Tags?.Count > 0 ? string.Join(",", m.Tags) : null,
         Click = m.Click,
+        Attachment = m.Attachment,
     };
+
+    private static string? SerializeAttachment(NtfyAttachment? attachment) =>
+        attachment is null ? null : JsonSerializer.Serialize(attachment);
+
+    private static NtfyAttachment? DeserializeAttachment(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<NtfyAttachment>(json); }
+        catch { return null; } // tolerate a malformed/legacy value rather than failing the read
+    }
 }

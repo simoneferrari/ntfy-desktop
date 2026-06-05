@@ -42,6 +42,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _activeHoursStartText = "09:00";
     [ObservableProperty] private string _activeHoursEndText   = "18:00";
     [ObservableProperty] private bool _showServerLabel = true;
+    [ObservableProperty] private bool _autoDownloadAttachments;
+    [ObservableProperty] private int _autoDownloadMaxFileMb = 5;
+    [ObservableProperty] private int _attachmentCacheMaxMb = 100;
 
     [ObservableProperty] private bool _isDirty;
 
@@ -63,6 +66,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         ActiveHoursStartText = _settings.ActiveHoursStart.ToString("HH:mm");
         ActiveHoursEndText   = _settings.ActiveHoursEnd.ToString("HH:mm");
         ShowServerLabel      = _settings.ShowServerLabel;
+        AutoDownloadAttachments = _settings.AutoDownloadAttachments;
+        AutoDownloadMaxFileMb   = _settings.AutoDownloadMaxFileMb;
+        AttachmentCacheMaxMb    = _settings.AttachmentCacheMaxMb;
 
         ReloadServers();
 
@@ -175,6 +181,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.HistoryRetentionDays = HistoryRetentionDays;
         _settings.ActiveHoursEnabled   = ActiveHoursEnabled;
         _settings.ShowServerLabel      = ShowServerLabel;
+        _settings.AutoDownloadAttachments = AutoDownloadAttachments;
+        _settings.AutoDownloadMaxFileMb   = AutoDownloadMaxFileMb;
+        _settings.AttachmentCacheMaxMb    = AttachmentCacheMaxMb;
         if (TimeOnly.TryParseExact(ActiveHoursStartText, "HH:mm", out var start))
             _settings.ActiveHoursStart = start;
         if (TimeOnly.TryParseExact(ActiveHoursEndText, "HH:mm", out var end))
@@ -202,7 +211,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         ActiveHoursEnabled,
         ActiveHoursStartText,
         ActiveHoursEndText,
-        ShowServerLabel);
+        ShowServerLabel,
+        AutoDownloadAttachments,
+        AutoDownloadMaxFileMb,
+        AttachmentCacheMaxMb);
 
     private readonly record struct FormSnapshot(
         Priority GlobalMinPriority,
@@ -211,10 +223,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         bool ActiveHoursEnabled,
         string ActiveHoursStartText,
         string ActiveHoursEndText,
-        bool ShowServerLabel)
+        bool ShowServerLabel,
+        bool AutoDownloadAttachments,
+        int AutoDownloadMaxFileMb,
+        int AttachmentCacheMaxMb)
     {
         public static readonly FormSnapshot Empty = new(
-            Priority.Min, 0, false, false, string.Empty, string.Empty, true);
+            Priority.Min, 0, false, false, string.Empty, string.Empty, true, false, 5, 100);
     }
 }
 

@@ -174,6 +174,21 @@ public class AppSettings
     public Priority GlobalMinPriority { get; set; } = Priority.Min;
     public int HistoryRetentionDays { get; set; } = 30;
 
+    /// <summary>Download a message's attachment in the background as soon as it arrives, so
+    /// it's cached locally before the ntfy server expires it (servers keep attachments only
+    /// briefly). Off by default — when off, attachments fetch on demand (files on open,
+    /// images when their feed is viewed).</summary>
+    public bool AutoDownloadAttachments { get; set; } = false;
+
+    /// <summary>Skip auto-downloading attachments larger than this (MB). Opening one manually
+    /// ignores this and fetches up to the service's hard safety cap.</summary>
+    public int AutoDownloadMaxFileMb { get; set; } = 5;
+
+    /// <summary>Total size budget (MB) for the on-disk attachment cache, across both
+    /// auto-downloaded and on-demand files; the oldest (least-recently-used) files are evicted
+    /// when it's exceeded.</summary>
+    public int AttachmentCacheMaxMb { get; set; } = 100;
+
     /// <summary>Show each topic's server as a subtitle in the rail (only meaningful
     /// with more than one server). Replaces the old by-server grouping.</summary>
     public bool ShowServerLabel { get; set; } = true;

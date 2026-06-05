@@ -85,7 +85,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 
 **0.6 — Richer messages**
 - [ ] Action buttons (`view` / `http` / `broadcast`)
-- [ ] Image attachments inline in the feed
+- [x] Image attachments inline in the feed
 
 **0.7 — Polish**
 - [ ] Username/password authentication (in addition to access tokens)

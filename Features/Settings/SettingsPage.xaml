@@ -184,6 +184,74 @@
                     </Grid>
                 </Border>
 
+                <!-- ======================= ATTACHMENTS ======================= -->
+                <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Attachments" />
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Download attachments on arrival" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Cache each message's attachment as soon as it arrives, so it survives the server's short expiry. When off, attachments download on demand (files when opened, images when their feed is viewed)." />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1"
+                                         VerticalAlignment="Center"
+                                         IsChecked="{Binding AutoDownloadAttachments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}"
+                        Visibility="{Binding AutoDownloadAttachments, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Max size to auto-download" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Larger attachments aren't fetched automatically, but you can still open them on demand." />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:NumberBox Width="160"
+                                          Minimum="1"
+                                          Maximum="25"
+                                          ClearButtonEnabled="False"
+                                          Value="{Binding AutoDownloadMaxFileMb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                          Margin="8,0,0,0"
+                                          VerticalAlignment="Center"
+                                          Text="MB" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Attachment cache limit" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Total disk budget for cached attachments (auto-downloaded and opened). The least-recently-used files are removed when the limit is exceeded." />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:NumberBox Width="160"
+                                          Minimum="25"
+                                          Maximum="10000"
+                                          ClearButtonEnabled="False"
+                                          Value="{Binding AttachmentCacheMaxMb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                          Margin="8,0,0,0"
+                                          VerticalAlignment="Center"
+                                          Text="MB" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- ======================= SYSTEM ======================= -->
                 <ui:TextBlock Style="{StaticResource SectionTitle}" Text="System" />
 

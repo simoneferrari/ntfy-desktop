@@ -241,6 +241,77 @@
                                     <ui:TextBlock Text="{Binding Body}"
                                                   TextWrapping="Wrap"
                                                   Margin="0,2,0,0" />
+
+                                    <!-- Inline image attachment. A Button (not a Border+MouseBinding)
+                                         so the click is consumed and doesn't also fire the row's
+                                         OpenClick. DataContextChanged is the load trigger because the
+                                         ListBox recycles containers without re-raising Loaded; the
+                                         image service caches, so re-triggering on recycle is cheap. -->
+                                    <Button Margin="0,8,0,0"
+                                            HorizontalAlignment="Left"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Cursor="Hand"
+                                            Focusable="False"
+                                            ToolTip="Open image"
+                                            Visibility="{Binding HasImageAttachment, Converter={StaticResource BoolToVis}}"
+                                            Command="{Binding DataContext.OpenAttachmentCommand, RelativeSource={RelativeSource AncestorType=Page}}"
+                                            CommandParameter="{Binding}">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border CornerRadius="6"
+                                                        ClipToBounds="True"
+                                                        MaxWidth="360"
+                                                        MaxHeight="240"
+                                                        Background="Transparent">
+                                                    <ContentPresenter />
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                        <Image Source="{Binding AttachmentImage}"
+                                               Stretch="Uniform"
+                                               StretchDirection="DownOnly" />
+                                    </Button>
+
+                                    <!-- Non-image attachment: a compact chip that opens the file URL. -->
+                                    <Button Margin="0,8,0,0"
+                                            HorizontalAlignment="Left"
+                                            Cursor="Hand"
+                                            Focusable="False"
+                                            ToolTip="Open attachment"
+                                            Visibility="{Binding HasFileAttachment, Converter={StaticResource BoolToVis}}"
+                                            Command="{Binding DataContext.OpenAttachmentCommand, RelativeSource={RelativeSource AncestorType=Page}}"
+                                            CommandParameter="{Binding}">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Bd"
+                                                        Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                                                        CornerRadius="4"
+                                                        Padding="8,4">
+                                                    <ContentPresenter />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd"
+                                                                Property="Background"
+                                                                Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                        <StackPanel Orientation="Horizontal">
+                                            <ui:SymbolIcon Symbol="Attach24"
+                                                           FontSize="14"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                            <ui:TextBlock Margin="6,0,0,0"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                          FontTypography="Caption"
+                                                          Text="{Binding AttachmentLabel}" />
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2"
                                             Orientation="Horizontal"
