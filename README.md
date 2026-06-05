@@ -77,9 +77,9 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Topic groups/folders (collapsible groups in the nav rail, with manual ordering and drag-and-drop)
 - [x] Unread count in the tray tooltip (unread total on the tray icon)
 
-**0.5 — Catch up on missed messages**
-- [ ] Fetch messages that arrived while the app was closed or offline (ntfy `since=`), backfilling history and the feed on every (re)connect so nothing is missed across restarts — matching the ntfy web client
-- [ ] Summarise the catch-up in a single "N messages while you were away" notification instead of replaying a toast per missed message
+**0.5 — Catch up on missed messages** (shipped in v0.5)
+- [x] Fetch messages that arrived while the app was closed or offline (ntfy `since=`), backfilling history and the feed on every (re)connect so nothing is missed across restarts — matching the ntfy web client
+- [x] Summarise the catch-up in a single "N messages while you were away" notification instead of replaying a toast per missed message
 
 **0.6 — Richer messages**
 - [ ] Action buttons (`view` / `http` / `broadcast`)
