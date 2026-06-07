@@ -86,6 +86,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 
 **0.6 — Richer messages**
 - [x] Action buttons (`view` / `http` / `copy`) in the feed, with confirmation before firing an `http` request
+- [ ] Action buttons on toast notifications (trigger actions straight from the toast, not just the feed)
 - [x] Image attachments inline in the feed
 
 **0.7 — Polish**
