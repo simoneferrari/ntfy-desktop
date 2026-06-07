@@ -3,10 +3,12 @@ using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using NtfyDesktop.Core.Messaging;
 using Microsoft.Extensions.Hosting;
+using NtfyDesktop.Domain;
 using NtfyDesktop.Features;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.Connections.Events;
 using NtfyDesktop.Features.Feed;
+using NtfyDesktop.Features.History;
 using NtfyDesktop.Features.Notifications;
 using NtfyDesktop.Features.Notifications.Events;
 using NtfyDesktop.Features.Shell;
@@ -85,11 +87,17 @@ public partial class App : Application
         _mutex = new Mutex(true, SingleInstanceMutexName(), out var isFirstInstance);
         if (!isFirstInstance)
         {
-            // Another instance is already running for this data folder. Forward the
-            // activation URL (if any) to it so it can bring the right feed forward,
-            // then exit. If forwarding fails the running instance just won't react —
-            // we still don't want two instances side-by-side.
-            if (!string.IsNullOrEmpty(activationUrl))
+            // Another instance is already running for this data folder.
+            //
+            // A "view" toast button is self-contained (just a URL), so open it HERE rather
+            // than forwarding: this freshly-launched, toast-activated process holds the
+            // foreground grant, so ShellExecute brings the browser to the foreground. The
+            // long-running instance does not have that grant and the page would only flash
+            // in the taskbar. Everything else (show / http / copy) needs the running
+            // instance's window + state, so forward it there and exit.
+            if (TryParseViewActivation(activationUrl, out var viewUrl))
+                SafeUrl.Open(viewUrl);
+            else if (!string.IsNullOrEmpty(activationUrl))
                 SingleInstanceServer.TryForward(ActivationPipeName(), activationUrl);
             Shutdown(0);
             return;
@@ -159,12 +167,44 @@ public partial class App : Application
 
     private void DispatchActivation(string url)
     {
-        if (!TryParseShowActivation(url, out var topicId)) return;
+        if (TryParseShowActivation(url, out var topicId))
+        {
+            ShowMainWindow();
+            _host!.Services.GetRequiredService<MainWindow>().NavigateToTopic(topicId);
+            return;
+        }
 
-        ShowMainWindow();
+        // Cold start via a "view" toast button: this launched process holds the foreground
+        // grant, so opening the URL brings the browser forward. (Warm starts open it in the
+        // second instance and never reach here.)
+        if (TryParseViewActivation(url, out var viewUrl))
+        {
+            SafeUrl.Open(viewUrl);
+            return;
+        }
 
-        var window = _host!.Services.GetRequiredService<MainWindow>();
-        window.NavigateToTopic(topicId);
+        if (TryParseActionActivation(url, out var msgId, out var actionIndex))
+            _ = HandleActionActivationAsync(msgId, actionIndex);
+    }
+
+    // Runs a message action triggered from a toast button. Looks the message up in
+    // history by id (it was stored before the toast fired), takes the indexed action,
+    // and runs it through the same MessageActionInvoker the feed uses — so http is
+    // confirmed before firing and the logic isn't duplicated. http brings the window
+    // forward so its confirm dialog has focus; copy stays silent (no window pop).
+    private async Task HandleActionActivationAsync(string messageId, int index)
+    {
+        var history = _host!.Services.GetRequiredService<HistoryRepository>();
+        var message = history.GetByMessageId(messageId);
+
+        if (message?.Actions is not { } actions || index < 0 || index >= actions.Count) return;
+
+        var action = actions[index];
+        if (!action.IsSupported) return;
+
+        if (action.IsHttp) ShowMainWindow();
+
+        await _host.Services.GetRequiredService<MessageActionInvoker>().InvokeAsync(action);
     }
 
     // ntfy-desktop://show?topic=<TopicId>
@@ -193,6 +233,62 @@ public partial class App : Application
         }
 
         return topicId != Guid.Empty;
+    }
+
+    // ntfy-desktop://view?url=<http(s) URL>. Only http/https pass (SafeUrl), so a malicious
+    // publisher can't smuggle a file:// or custom-scheme target through a toast button.
+    private static bool TryParseViewActivation(string? url, out string viewUrl)
+    {
+        viewUrl = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, ProtocolRegistration.SCHEME, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!string.Equals(uri.Host, "view", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var q = uri.Query;
+        if (string.IsNullOrEmpty(q)) return false;
+        if (q.StartsWith('?')) q = q[1..];
+
+        foreach (var pair in q.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq < 0) continue;
+            var key = Uri.UnescapeDataString(pair[..eq]);
+            var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
+            if (string.Equals(key, "url", StringComparison.OrdinalIgnoreCase)) viewUrl = value;
+        }
+
+        return SafeUrl.IsAllowed(viewUrl);
+    }
+
+    // ntfy-desktop://action?msg=<MessageId>&i=<ActionIndex>
+    private static bool TryParseActionActivation(string url, out string messageId, out int index)
+    {
+        messageId = string.Empty;
+        index = -1;
+
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, ProtocolRegistration.SCHEME, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!string.Equals(uri.Host, "action", StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Minimal query parsing — no System.Web dependency. Format: ?msg=<id>&i=<index>
+        var q = uri.Query;
+        if (string.IsNullOrEmpty(q)) return false;
+        if (q.StartsWith('?')) q = q[1..];
+
+        foreach (var pair in q.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            if (eq < 0) continue;
+            var key = Uri.UnescapeDataString(pair[..eq]);
+            var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
+            if (string.Equals(key, "msg", StringComparison.OrdinalIgnoreCase)) messageId = value;
+            else if (string.Equals(key, "i", StringComparison.OrdinalIgnoreCase)) int.TryParse(value, out index);
+        }
+
+        return messageId.Length > 0 && index >= 0;
     }
 
     private static string? ExtractActivationUrl(string[] args) =>

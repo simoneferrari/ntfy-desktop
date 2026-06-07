@@ -51,7 +51,8 @@ public class ToastNotifier
 
             var body = message.Message ?? string.Empty;
 
-            var xml = BuildToastXml(title, body, message.Topic, message.Priority, message.Click, topicId);
+            var xml = BuildToastXml(title, body, message.Topic, message.Priority, message.Click, topicId,
+                message.Id, message.Actions);
             var toast = new ToastNotification(xml)
             {
                 // Group toasts by topic; tag by message id so duplicates replace rather than stack
@@ -118,7 +119,8 @@ public class ToastNotifier
         return (title, body);
     }
 
-    private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority, string? clickUrl, Guid topicId)
+    private static XmlDocument BuildToastXml(string title, string body, string topic, Priority priority, string? clickUrl, Guid topicId,
+        string messageId, IReadOnlyList<NtfyAction>? actions)
     {
         // Urgent: persistent toast + alarm sound until dismissed
         var scenarioAttr = priority == Priority.Urgent ? @" scenario=""urgent""" : string.Empty;
@@ -142,6 +144,9 @@ public class ToastNotifier
 
         var attribution = FormatAttribution(topic, priority);
 
+        // Action buttons. Schema order is visual → actions → audio.
+        var actionsElement = BuildActionsXml(messageId, actions);
+
         var doc = new XmlDocument();
         doc.LoadXml($"""
             <toast{scenarioAttr}{clickAttrs}>
@@ -152,10 +157,44 @@ public class ToastNotifier
                   <text placement="attribution">{EscapeXml(attribution)}</text>
                 </binding>
               </visual>
+              {actionsElement}
               {audioElement}
             </toast>
             """);
         return doc;
+    }
+
+    // Renders up to three message action buttons (Windows allows 5; ntfy caps at 3).
+    // `view` launches its URL directly via protocol activation (browser); `http`/`copy`
+    // launch us back through ntfy-desktop://action?msg=&i= so the action is looked up in
+    // history and run (with confirmation for http) by MessageActionInvoker. broadcast and
+    // any unsupported/unsafe action are skipped. Returns "" when there's nothing to render.
+    private static string BuildActionsXml(string messageId, IReadOnlyList<NtfyAction>? actions)
+    {
+        if (actions is not { Count: > 0 }) return string.Empty;
+
+        var buttons = new List<string>();
+        for (var i = 0; i < actions.Count && buttons.Count < 3; i++)
+        {
+            var action = actions[i];
+            if (!action.IsSupported) continue;
+
+            // All buttons activate through our own scheme rather than launching the URL
+            // directly: a toast-activated app gets the foreground grant, so when *it* opens
+            // the browser the page comes to the foreground (a raw URL handed to the shell
+            // does not). view carries its own URL (self-contained, no history needed);
+            // http/copy carry the message id + this action's index for the app to resolve.
+            var arguments = action.IsView
+                ? $"{ProtocolRegistration.SCHEME}://view?url={Uri.EscapeDataString(action.Url!)}"
+                : $"{ProtocolRegistration.SCHEME}://action?msg={Uri.EscapeDataString(messageId)}&i={i}";
+
+            var label = string.IsNullOrWhiteSpace(action.Label) ? "Open" : action.Label;
+
+            buttons.Add(
+                $"""<action content="{EscapeXml(label)}" activationType="protocol" arguments="{EscapeXml(arguments)}" />""");
+        }
+
+        return buttons.Count == 0 ? string.Empty : $"<actions>{string.Join("", buttons)}</actions>";
     }
 
     private static string FormatAttribution(string topic, Priority priority) => priority switch

@@ -47,7 +47,7 @@ A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics acr
 
 **Feed and history**
 - In-app message feed with per-topic filtering, full-text search, and priority threshold
-- Action buttons on messages — open a link (`view`), copy a value (`copy`), or fire an `http` request after a confirmation prompt
+- Action buttons on messages, both in the feed and on toast notifications — open a link (`view`), copy a value (`copy`), or fire an `http` request after a confirmation prompt
 - Unread-message badges on the rail (per topic and across all topics); opening a feed marks it read
 - Message history persisted in SQLite, with configurable retention
 
@@ -85,8 +85,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Summarise the catch-up in a single "N messages while you were away" notification instead of replaying a toast per missed message
 
 **0.6 — Richer messages**
-- [x] Action buttons (`view` / `http` / `copy`) in the feed, with confirmation before firing an `http` request
-- [ ] Action buttons on toast notifications (trigger actions straight from the toast, not just the feed)
+- [x] Action buttons (`view` / `http` / `copy`) in the feed and on toast notifications, with confirmation before firing an `http` request
 - [x] Image attachments inline in the feed
 
 **0.7 — Polish**

@@ -311,6 +311,21 @@ public class HistoryRepository
     }
 
     /// <summary>
+    /// A single stored message by its ntfy message id, or null when not found (e.g. retention
+    /// pruned it). Used to resolve a toast action button back to its message + actions.
+    /// </summary>
+    public HistoryMessage? GetByMessageId(string messageId)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM messages WHERE message_id = @mid LIMIT 1";
+        cmd.Parameters.AddWithValue("@mid", messageId);
+
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? ReadRow(reader) : null;
+    }
+
+    /// <summary>
     /// Unread (read = 0) message counts grouped by topic id. Rows whose topic_id is
     /// null/blank (pre-backfill orphans) bucket under <see cref="Guid.Empty"/>; they
     /// still appear in the All-topics feed, so counting them keeps the total honest.
