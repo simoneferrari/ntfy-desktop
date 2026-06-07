@@ -6,6 +6,7 @@ Entry point for Claude sessions in this repo. Read the two docs below first, the
 - **`.claude/HANDOFF.md`** — session orientation: build/run, the Git workflow, and hard-won conventions/don'ts.
 - **`ARCHITECTURE.md`** — the stable design (feature layout, event bus, connection ↔ notification separation).
 - **`.claude/ROADMAP-NOTES.md`** — internal notes behind the public roadmap in `README.md`.
+- **`issues-backlog.md`** — known bugs and small deferred items not yet on the roadmap.
 
 ## Tools
 - **Use the context7 MCP server for docs about the app's NuGet packages** — WPF-UI, CommunityToolkit.Mvvm, Microsoft.Data.Sqlite, H.NotifyIcon.Wpf, etc. Query it (`resolve-library-id` → `query-docs`) rather than relying on memory, since your training data may lag behind current package versions.
