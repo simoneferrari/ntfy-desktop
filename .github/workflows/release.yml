@@ -144,8 +144,14 @@ jobs:
             '--channel', '${{ steps.version.outputs.channel }}',
             '--publish',
             '--releaseName', 'ntfy Desktop ${{ steps.version.outputs.version }}',
-            '--tag', '${{ github.ref_name }}',
-            '--releaseNotes', 'notes.md'
+            '--tag', '${{ github.ref_name }}'
           )
           if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $vpkArgs += '--pre' }
           vpk @vpkArgs
+
+      # vpk upload github has no release-notes flag, so set the release body afterwards
+      # with gh (preinstalled on the runner). Keeps the VirusTotal link in the notes.
+      - name: Set release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --repo ${{ github.repository }} --notes-file notes.md
