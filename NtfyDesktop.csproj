@@ -13,7 +13,7 @@
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
     <!-- Package metadata -->
-    <Version>0.6.1</Version>
+    <Version>0.6.2</Version>
     <Product>ntfy Desktop</Product>
     <Description>Windows desktop client for ntfy.sh — toast notifications, system tray, in-app feed.</Description>
     <Authors>Simone Ferrari</Authors>
