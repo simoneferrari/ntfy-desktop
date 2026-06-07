@@ -54,6 +54,10 @@ public class HistoryRepository
         // trivial and is forward-compatible if ntfy adds fields.
         EnsureColumn(conn, "attachment");
 
+        // Action buttons, stored as the raw ntfy "actions" JSON array. Same single-column
+        // approach as attachment — trivial migration, forward-compatible.
+        EnsureColumn(conn, "actions");
+
         // Unread tracking (0 = unread, 1 = read). When the column is added to an
         // existing database, mark all pre-existing rows read so the user doesn't
         // get flooded with unread badges for messages they've already seen — only
@@ -159,9 +163,9 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO messages
-                (message_id, topic, topic_id, server_id, timestamp, priority, title, body, tags, click, attachment)
+                (message_id, topic, topic_id, server_id, timestamp, priority, title, body, tags, click, attachment, actions)
             VALUES
-                (@mid, @topic, @topicId, @serverId, @ts, @priority, @title, @body, @tags, @click, @attachment)
+                (@mid, @topic, @topicId, @serverId, @ts, @priority, @title, @body, @tags, @click, @attachment, @actions)
             """;
         cmd.Parameters.AddWithValue("@mid", message.Id);
         cmd.Parameters.AddWithValue("@topic", message.Topic);
@@ -175,6 +179,7 @@ public class HistoryRepository
             (object?)(message.Tags?.Count > 0 ? string.Join(",", message.Tags) : null) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@click", (object?)message.Click ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@attachment", (object?)SerializeAttachment(message.Attachment) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@actions", (object?)SerializeActions(message.Actions) ?? DBNull.Value);
         var inserted = cmd.ExecuteNonQuery() > 0; // INSERT OR IGNORE → 0 when message_id already stored
 
         // Advance the topic's catch-up cursor (forward only). Runs even when the row was
@@ -442,6 +447,7 @@ public class HistoryRepository
             Tags = NullStr("tags"),
             Click = NullStr("click"),
             Attachment = DeserializeAttachment(NullStr("attachment")),
+            Actions = DeserializeActions(NullStr("actions")),
         };
     }
 
@@ -457,6 +463,7 @@ public class HistoryRepository
         Tags = m.Tags?.Count > 0 ? string.Join(",", m.Tags) : null,
         Click = m.Click,
         Attachment = m.Attachment,
+        Actions = m.Actions,
     };
 
     private static string? SerializeAttachment(NtfyAttachment? attachment) =>
@@ -466,6 +473,16 @@ public class HistoryRepository
     {
         if (string.IsNullOrEmpty(json)) return null;
         try { return JsonSerializer.Deserialize<NtfyAttachment>(json); }
+        catch { return null; } // tolerate a malformed/legacy value rather than failing the read
+    }
+
+    private static string? SerializeActions(List<NtfyAction>? actions) =>
+        actions is { Count: > 0 } ? JsonSerializer.Serialize(actions) : null;
+
+    private static List<NtfyAction>? DeserializeActions(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<List<NtfyAction>>(json); }
         catch { return null; } // tolerate a malformed/legacy value rather than failing the read
     }
 }

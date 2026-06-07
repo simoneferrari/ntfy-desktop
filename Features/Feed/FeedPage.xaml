@@ -312,6 +312,35 @@
                                                           Text="{Binding AttachmentLabel}" />
                                         </StackPanel>
                                     </Button>
+
+                                    <!-- Action buttons (ntfy "actions"). Each is a real Button so
+                                         its click is consumed and doesn't also fire the row's
+                                         OpenClick. The invoker enforces safety: view opens the URL,
+                                         http confirms before firing, copy copies to clipboard.
+                                         Unsupported actions (broadcast / no valid target) render
+                                         disabled with an explanatory tooltip. -->
+                                    <ItemsControl ItemsSource="{Binding Actions}"
+                                                  Margin="0,8,0,0"
+                                                  Visibility="{Binding HasActions, Converter={StaticResource BoolToVis}}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <ui:Button Appearance="Secondary"
+                                                           Margin="0,0,8,0"
+                                                           Padding="10,4"
+                                                           Content="{Binding Label}"
+                                                           IsEnabled="{Binding IsSupported}"
+                                                           ToolTip="{Binding DisabledReason}"
+                                                           ToolTipService.ShowOnDisabled="True"
+                                                           Command="{Binding DataContext.InvokeActionCommand, RelativeSource={RelativeSource AncestorType=Page}}"
+                                                           CommandParameter="{Binding}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2"
                                             Orientation="Horizontal"

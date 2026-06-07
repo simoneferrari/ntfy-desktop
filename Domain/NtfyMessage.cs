@@ -34,6 +34,9 @@ public sealed record NtfyMessage
     [JsonPropertyName("attachment")]
     public NtfyAttachment? Attachment { get; init; }
 
+    [JsonPropertyName("actions")]
+    public List<NtfyAction>? Actions { get; init; }
+
     [JsonPropertyName("expires")]
     public long? Expires { get; init; }
 

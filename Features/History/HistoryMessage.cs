@@ -35,6 +35,12 @@ public partial class HistoryMessage : ObservableObject
     /// <summary>The attachment is a non-image file with a usable URL — show a link chip instead.</summary>
     public bool HasFileAttachment => Attachment is { IsImage: false } && SafeUrl.IsAllowed(Attachment.Url);
 
+    /// <summary>Action buttons attached to the message (view / http / copy / broadcast).</summary>
+    public List<NtfyAction>? Actions { get; set; }
+
+    /// <summary>True when the message carries at least one action button to render.</summary>
+    public bool HasActions => Actions is { Count: > 0 };
+
     /// <summary>Chip label for a non-image attachment: filename, plus size when known.</summary>
     public string AttachmentLabel
     {

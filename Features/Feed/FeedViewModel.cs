@@ -28,6 +28,7 @@ public sealed partial class FeedViewModel : ObservableObject
     private readonly NotificationGate _gate;
     private readonly AppSettings _settings;
     private readonly AttachmentImageService _images;
+    private readonly MessageActionInvoker _actions;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Title))]
@@ -56,13 +57,15 @@ public sealed partial class FeedViewModel : ObservableObject
         CurrentTopicId is { } id ? _settings.GetTopicById(id)?.EffectiveDisplayName : null;
 
     public FeedViewModel(HistoryRepository history, ConnectionManager connections,
-        NotificationGate gate, AppSettings settings, AttachmentImageService images, EventBus bus)
+        NotificationGate gate, AppSettings settings, AttachmentImageService images,
+        MessageActionInvoker actions, EventBus bus)
     {
         _history = history;
         _connections = connections;
         _gate = gate;
         _settings = settings;
         _images = images;
+        _actions = actions;
 
         // All handlers run on the UI thread (the bus marshals), so they touch Messages
         // and observable state directly — no Dispatcher.Invoke here.
@@ -255,6 +258,12 @@ public sealed partial class FeedViewModel : ObservableObject
     // SafeUrl.Open silently no-ops if the URL is missing or fails the allow-list.
     [RelayCommand]
     private void OpenClick(HistoryMessage? message) => Domain.SafeUrl.Open(message?.Click);
+
+    // Bound to each action button in a message row. The invoker enforces the safety
+    // rules (confirm http, sanitise view, ignore broadcast) in one place.
+    [RelayCommand]
+    private Task InvokeAction(NtfyAction? action) =>
+        action is null ? Task.CompletedTask : _actions.InvokeAsync(action);
 
     /// <summary>
     /// Downloads + decodes a message's inline image once. Called as messages enter the feed

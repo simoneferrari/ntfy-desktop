@@ -15,6 +15,9 @@ public static class FeedFeature
             // Inline image attachments: shared download/cache service + its periodic sweep.
             services.AddSingleton<AttachmentImageService>();
             services.AddHostedService<AttachmentCacheSweepService>();
+
+            // Executes message action buttons (view / http / copy) safely.
+            services.AddSingleton<MessageActionInvoker>();
         }
         
     }
