@@ -19,6 +19,8 @@ stays visible in the rail. WPF keeps a collapsed folder's child rows loaded (onl
 container is hidden), so the child icon never raises `Unloaded` and its `BadgeAdorner` lingers
 in the adorner layer at the icon's stale position. Pre-existing; surfaced while testing the
 toast-click fix.
+Status: fixed on `fix/collapsed-folder-unread-badge` — `BadgeAdorner` binds its `Visibility`
+to the adorned icon's `IsVisible`, so it hides whenever an ancestor collapses. Awaiting merge.
 
 ### Small items
 

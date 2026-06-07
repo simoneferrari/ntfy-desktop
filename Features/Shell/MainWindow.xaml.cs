@@ -1171,6 +1171,17 @@ public partial class MainWindow
 
             IsHitTestVisible = false;
 
+            // Hide the whole badge whenever its icon isn't actually on screen — e.g. a topic
+            // inside a collapsed group folder. WPF keeps a collapsed folder's child rows loaded
+            // (only their container is hidden), so the icon never raises Unloaded and the adorner
+            // would otherwise linger in the adorner layer at the icon's stale position. IsVisible
+            // flips false as soon as any ancestor collapses.
+            SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(IsVisible))
+            {
+                Source = adornedElement,
+                Converter = new BooleanToVisibilityConverter(),
+            });
+
             _text = new System.Windows.Controls.TextBlock
             {
                 Foreground = Brushes.White,
