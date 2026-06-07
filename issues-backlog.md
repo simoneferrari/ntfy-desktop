@@ -28,14 +28,19 @@ whether the app is already open or closed when the toast is clicked.
 
 ### Small items
 
-#### Main window should open maximized (or near-full-screen) from the tray icon
-
-When the window is opened from the tray icon it should be maximized, or at least occupy
-most of the screen, rather than its current size.
-Status: fixed on `feature/window-maximized-on-open` (default maximized on fresh install +
-full size/position/maximized-state persistence across restarts). Awaiting merge.
+_None currently._
 
 ## Resolved
+
+#### Main window opened too small from the tray
+
+The window opened at a fixed ~1000×660 centred regardless of screen size. **Fix:** default to
+maximized on a fresh install and persist the user's size/position/maximized state
+(`AppSettings.WindowPlacement`), restoring it on launch (`MainWindow.ApplyPersistedPlacement`)
+and capturing it in-memory on move/resize, flushed on hide and on exit. Off-screen saved bounds
+are ignored; restoring from minimized returns to the remembered state. Branch
+`feature/window-maximized-on-open`.
+
 
 #### Newly-added topic's feed was empty on first click (until restart)
 
