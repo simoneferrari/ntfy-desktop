@@ -160,6 +160,19 @@ public class HistoryRepository
     public bool Insert(NtfyMessage message, Guid topicId, Guid serverId)
     {
         using var conn = Open();
+
+        // A `since=<time>` catch-up is inclusive of its boundary second, so every reconnect
+        // re-delivers the cursor's own (most-recently-acknowledged) message. Normally the
+        // INSERT OR IGNORE below absorbs that. But if the user had *deleted* that message its
+        // row is gone, so the re-delivery would look brand new — resurrecting it in the feed
+        // and unread count and firing a phantom "while you were away" summary. The cursor
+        // records that id precisely so we can recognise the re-sent boundary message and drop
+        // it even after its row is deleted. (An empty cursor id — a freshly seeded baseline —
+        // matches nothing, so first-connect catch-up is unaffected.)
+        var cursorMessageId = ReadCursorMessageId(conn, topicId);
+        if (!string.IsNullOrEmpty(cursorMessageId) && message.Id == cursorMessageId)
+            return false;
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO messages
@@ -218,6 +231,19 @@ public class HistoryRepository
         cmd.Parameters.AddWithValue("@id", topicId.ToString());
         cmd.Parameters.AddWithValue("@t", time);
         cmd.ExecuteNonQuery();
+    }
+
+    // The message id of a topic's current catch-up cursor (the last id we acknowledged
+    // from the server), or null when the topic has no cursor. Empty string for a seeded
+    // baseline that has never advanced to a real message. Used by Insert to drop the
+    // re-delivered boundary message — see the note there.
+    private static string? ReadCursorMessageId(SqliteConnection conn, Guid topicId)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT message_id FROM topic_cursor WHERE topic_id = @id";
+        cmd.Parameters.AddWithValue("@id", topicId.ToString());
+        var result = cmd.ExecuteScalar();
+        return result is null or DBNull ? null : (string)result;
     }
 
     private static void AdvanceCursor(SqliteConnection conn, Guid topicId, string messageId, long time)

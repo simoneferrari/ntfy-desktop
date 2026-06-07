@@ -19,6 +19,9 @@ notification appears even though the deleted message was already read. Catch-up 
 fetch only messages since the last-read timestamp, so a read-then-deleted message should
 not count. If the message is *not* deleted, the notification correctly does not appear,
 which points at the delete path mishandling the since-timestamp / read bookkeeping.
+Status: fixed on `fix/away-notification-after-delete` — `HistoryRepository.Insert` now drops
+the re-delivered boundary message by matching `topic_cursor.message_id` (survives the row
+delete that previously made the inclusive `since=` re-delivery look new). Awaiting merge.
 
 #### Toast click navigates to topic feed but rail selection isn't updated
 
