@@ -193,6 +193,12 @@ public class AppSettings
     /// with more than one server). Replaces the old by-server grouping.</summary>
     public bool ShowServerLabel { get; set; } = true;
 
+    /// <summary>Periodically check GitHub Releases for a newer version and surface it
+    /// via the in-app banner and a Windows notification. Updates are only downloaded
+    /// when the user chooses to install. On by default; only has any effect in an
+    /// installed (Velopack) build — a manual check is always available regardless.</summary>
+    public bool AutoUpdateCheckEnabled { get; set; } = true;
+
     /// <summary>Group names whose rail folder is collapsed. Persisted so the
     /// expand/collapse state survives restarts.</summary>
     public List<string> CollapsedGroups { get; set; } = new();

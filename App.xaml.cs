@@ -15,6 +15,7 @@ using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Shell;
 using NtfyDesktop.Features.Unread;
 using NtfyDesktop.Features.Unread.Events;
+using NtfyDesktop.Features.Updates;
 using Wpf.Ui.Appearance;
 using FeedViewModel = NtfyDesktop.Features.Feed.FeedViewModel;
 
@@ -184,6 +185,14 @@ public partial class App : Application
             return;
         }
 
+        // Update-available toast click: just bring the window up — the banner there
+        // carries the "Restart & update" action.
+        if (TryParseUpdateActivation(url))
+        {
+            ShowMainWindow();
+            return;
+        }
+
         if (TryParseActionActivation(url, out var msgId, out var actionIndex))
             _ = HandleActionActivationAsync(msgId, actionIndex);
     }
@@ -263,6 +272,16 @@ public partial class App : Application
         return SafeUrl.IsAllowed(viewUrl);
     }
 
+    // ntfy-desktop://update — fired by the "update available" toast. No payload; the
+    // app just needs to come forward so the banner is visible.
+    private static bool TryParseUpdateActivation(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (!string.Equals(uri.Scheme, ProtocolRegistration.SCHEME, StringComparison.OrdinalIgnoreCase)) return false;
+        return string.Equals(uri.Host, "update", StringComparison.OrdinalIgnoreCase);
+    }
+
     // ntfy-desktop://action?msg=<MessageId>&i=<ActionIndex>
     private static bool TryParseActionActivation(string url, out string messageId, out int index)
     {
@@ -331,6 +350,28 @@ public partial class App : Application
         // ApplySettingsAsync would no-op now that it's idempotent.
         var conn = _host!.Services.GetRequiredService<ConnectionManager>();
         await conn.RestartAllAsync();
+    }
+
+    // Whether auto-update is operative (a Velopack install). Drives whether the
+    // tray's "Check for updates" item is shown.
+    public bool UpdatesSupported =>
+        _host!.Services.GetRequiredService<UpdateService>().IsSupported;
+
+    // Manual update check from the tray. CheckAsync raises the banner + toast itself
+    // when something's found; here we only add the "nothing to do" feedback, since
+    // the window is usually closed when checking from the tray.
+    public async void CheckForUpdates()
+    {
+        var updates = _host!.Services.GetRequiredService<UpdateService>();
+        var toasts = _host.Services.GetRequiredService<ToastNotifier>();
+
+        switch (await updates.CheckAsync())
+        {
+            case UpdateCheckResult.UpToDate: toasts.ShowUpToDate();        break;
+            case UpdateCheckResult.Failed:   toasts.ShowUpdateCheckFailed(); break;
+            // UpdateAvailable already surfaced by CheckAsync; NotSupported can't reach
+            // here (the menu item is hidden unless UpdatesSupported).
+        }
     }
 
     public void QuitApp() => Shutdown(0);

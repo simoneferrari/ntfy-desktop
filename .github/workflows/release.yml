@@ -12,7 +12,7 @@ jobs:
       contents: write
     env:
       # Optional: set a VirusTotal API key as the VT_API_KEY repo secret to have
-      # each release's exe submitted to VirusTotal and a scan link added to the notes.
+      # the installer submitted to VirusTotal and a scan link added to the notes.
       # If the secret is absent, the scan step is skipped and the release still ships.
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
 
@@ -24,27 +24,77 @@ jobs:
         with:
           dotnet-version: '10.x'
 
+      # Single source of truth for the version is the csproj <Version>; the pushed
+      # tag (github.ref_name) is used as the git tag the release attaches to. Keep
+      # the two in sync (bump <Version>, then tag vX.Y.Z).
+      # Version + channel routing. A SemVer pre-release suffix (e.g. 0.7.0-dev.1) →
+      # the "dev" channel, published as a GitHub pre-release; otherwise the "stable"
+      # channel. The channel walls dev installs off from stable (each reads its own
+      # releases.{channel}.json), and --pre keeps `releases/latest` pointing at the
+      # last stable build (so the README's stable download link stays valid).
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path NtfyDesktop.csproj -Pattern '<Version>(.*?)</Version>').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          if ($v -match '-') { $channel = 'dev'; $pre = 'true' } else { $channel = 'stable'; $pre = 'false' }
+          "channel=$channel"   >> $env:GITHUB_OUTPUT
+          "prerelease=$pre"    >> $env:GITHUB_OUTPUT
+          "setup=NtfyDesktop-$channel-Setup.exe" >> $env:GITHUB_OUTPUT
+
+      # Folder publish, NOT single-file: Velopack packs a directory. Self-contained
+      # so the target needs no .NET runtime installed.
       - name: Publish
         run: >
           dotnet publish NtfyDesktop.csproj
           -c Release
           -r win-x64
           --self-contained
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:EnableCompressionInSingleFile=true
           -o publish/
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # Pull the previous release on THIS channel so vpk can build delta packages
+      # against it. First release on a channel finds nothing and this is a no-op.
+      # Dev channel is published as pre-releases, so --pre is needed to find them.
+      - name: Download previous release (for deltas)
+        shell: pwsh
+        run: |
+          $args = @(
+            'download', 'github',
+            '--repoUrl', 'https://github.com/${{ github.repository }}',
+            '--token', '${{ secrets.GITHUB_TOKEN }}',
+            '--channel', '${{ steps.version.outputs.channel }}'
+          )
+          if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $args += '--pre' }
+          vpk @args
+
+      # Produces NtfyDesktop-{channel}-Setup.exe + -Portable.zip + full/delta .nupkg
+      # + releases.{channel}.json in ./Releases.
+      - name: Pack
+        run: >
+          vpk pack
+          -u NtfyDesktop
+          -v ${{ steps.version.outputs.version }}
+          -p publish
+          -e NtfyDesktop.exe
+          -i assets/app.ico
+          -c ${{ steps.version.outputs.channel }}
+          --packTitle "ntfy Desktop"
+          --packAuthors "Simone Ferrari"
 
       - name: Scan with VirusTotal
         id: vt
         if: env.VT_API_KEY != ''
         shell: pwsh
         run: |
-          $file = "publish/NtfyDesktop.exe"
+          $file = "Releases/${{ steps.version.outputs.setup }}"
           $sha = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
 
           # Get a large-file upload URL (the direct /files endpoint caps at 32 MB;
-          # the self-contained exe is larger).
+          # the self-contained installer is larger).
           try {
             $uploadUrl = (Invoke-RestMethod -Uri "https://www.virustotal.com/api/v3/files/upload_url" `
                           -Headers @{ "x-apikey" = $env:VT_API_KEY }).data
@@ -68,9 +118,34 @@ jobs:
             if (Test-Path vt-response.json) { Get-Content vt-response.json | Write-Host }
           }
 
+      # vpk creates the release with these notes (it doesn't auto-generate a
+      # changelog), so assemble a short body — install hint plus the VT link if scanned.
+      - name: Assemble release notes
+        shell: pwsh
+        run: |
+          $c = "${{ steps.version.outputs.channel }}"
+          $notes = "Install with **NtfyDesktop-$c-Setup.exe**, or grab **NtfyDesktop-$c-Portable.zip** for a no-install copy. Both update themselves automatically."
+          if ("${{ steps.vt.outputs.url }}" -ne "") {
+            $notes = "**VirusTotal scan:** ${{ steps.vt.outputs.url }}`r`n`r`n" + $notes
+          }
+          Set-Content -Path notes.md -Value $notes
+
+      # Creates/publishes the GitHub Release for the pushed tag and uploads everything
+      # in ./Releases — installer, portable zip, packages, and releases.{channel}.json.
+      # The in-app updater reads releases.{channel}.json off the release to find updates.
+      # Pre-release tags add --pre so the GitHub release is flagged accordingly.
       - name: Upload release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: publish/NtfyDesktop.exe
-          generate_release_notes: true
-          body: ${{ steps.vt.outputs.url && format('**VirusTotal scan:** {0}', steps.vt.outputs.url) || '' }}
+        shell: pwsh
+        run: |
+          $vpkArgs = @(
+            'upload', 'github',
+            '--repoUrl', 'https://github.com/${{ github.repository }}',
+            '--token', '${{ secrets.GITHUB_TOKEN }}',
+            '--channel', '${{ steps.version.outputs.channel }}',
+            '--publish',
+            '--releaseName', 'ntfy Desktop ${{ steps.version.outputs.version }}',
+            '--tag', '${{ github.ref_name }}',
+            '--releaseNotes', 'notes.md'
+          )
+          if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $vpkArgs += '--pre' }
+          vpk @vpkArgs

@@ -100,21 +100,27 @@ internal sealed class TrayIconHost : IDisposable
         return new System.Drawing.Icon(stream, new System.Drawing.Size(32, 32));
     }
 
-    private static ContextMenu BuildContextMenu(App app, MenuItem pauseItem) =>
-        new()
+    private static ContextMenu BuildContextMenu(App app, MenuItem pauseItem)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(new MenuItem { Header = "Show", Command = new RelayCommand(app.ShowMainWindow) });
+        menu.Items.Add(new Separator());
+        menu.Items.Add(pauseItem);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(new MenuItem { Header = "Disconnect all", Command = new RelayCommand(app.DisconnectAllConnections) });
+        menu.Items.Add(new MenuItem { Header = "Reconnect all",  Command = new RelayCommand(app.ReconnectAllConnections) });
+
+        // Manual update check — only when auto-update is operative (a Velopack install).
+        if (app.UpdatesSupported)
         {
-            Items =
-            {
-                new MenuItem { Header = "Show", Command = new RelayCommand(app.ShowMainWindow) },
-                new Separator(),
-                pauseItem,
-                new Separator(),
-                new MenuItem { Header = "Disconnect all", Command = new RelayCommand(app.DisconnectAllConnections) },
-                new MenuItem { Header = "Reconnect all",  Command = new RelayCommand(app.ReconnectAllConnections) },
-                new Separator(),
-                new MenuItem { Header = "Quit", Command = new RelayCommand(app.QuitApp) },
-            },
-        };
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "Check for updates", Command = new RelayCommand(app.CheckForUpdates) });
+        }
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(new MenuItem { Header = "Quit", Command = new RelayCommand(app.QuitApp) });
+        return menu;
+    }
 
     public void Dispose()
     {

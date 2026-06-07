@@ -91,7 +91,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 **0.7 — Polish**
 - [ ] Username/password authentication (in addition to access tokens)
 - [ ] Markdown subset rendering in message bodies (bold, italic, links, code)
-- [ ] "New version available" banner (checks GitHub Releases)
+- [x] Automatic updates — Velopack-based self-updating installer and portable build, fed by GitHub Releases, with an in-app banner/notification, a manual check, and `stable` / `dev` channels *(shipped early in v0.6.4)*
 - [ ] Encrypt `history.db` at rest
 
 **Later**
@@ -113,13 +113,20 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 
 ## Installation
 
-Pre-built releases are published on the [Releases](../../releases) page as a single self-contained `.exe` — no installer required. Download, place anywhere, run.
+Two options on the [latest release](../../releases/latest) page, both of which keep themselves up to date automatically:
+
+- **Installer (recommended)** — download **`NtfyDesktop-stable-Setup.exe`** and run it. It installs for the current user (no administrator rights required) under `%LocalAppData%\NtfyDesktop`, launches the app, and adds a Start-menu shortcut.
+- **Portable (no install)** — download **`NtfyDesktop-stable-Portable.zip`**, extract it anywhere, and run `NtfyDesktop.exe`.
+
+**Updates are automatic.** The app checks GitHub Releases on startup and once a day; when a newer version is available it shows a banner with a **Restart & update** button that downloads the update and relaunches. You never need to re-download. (You can turn the automatic check off, or check manually, in **Settings → Updates**.)
+
+> **Want the latest features early?** Pre-release **dev** builds (`NtfyDesktop-dev-Setup.exe`) are published to the [releases](../../releases) page as features land. They're rougher and may be buggy, but they self-update through every dev build just like the stable channel. Install the dev build to opt in; reinstall the stable build to go back.
 
 ### First run: Windows SmartScreen
 
 The app is not yet code-signed, so the first time you run it Windows SmartScreen may show a *"Windows protected your PC"* dialog. This is expected for unsigned software that has not yet built up a download reputation — it does not indicate a problem with the application. To continue, click **More info**, then **Run anyway**.
 
-If you prefer to verify the binary first, every release's notes include a [VirusTotal](https://www.virustotal.com/) scan link for that build; you can also upload the downloaded `.exe` to VirusTotal yourself. Code signing is on the roadmap, which will remove this prompt.
+If you prefer to verify the download first, every release's notes include a [VirusTotal](https://www.virustotal.com/) scan link for that build; you can also upload the downloaded file to VirusTotal yourself. Code signing is on the roadmap, which will remove this prompt.
 
 ## Building from source
 
