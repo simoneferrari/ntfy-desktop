@@ -17,6 +17,9 @@ release-note material.
 Clicking a toast notification opens/shows the app and navigates to the topic's feed, but
 the rail doesn't mark that topic as selected — "All topics" stays selected instead. Happens
 whether the app is already open or closed when the toast is clicked.
+Status: fixed on `fix/toast-click-rail-selection` — `NavigateToTopic` navigates by the rail
+item's `Id` (not `typeof(FeedPage)`, which always resolved to "All topics"), and expands the
+topic's group folder first. Awaiting merge.
 
 ### Small items
 

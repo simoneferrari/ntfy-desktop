@@ -952,16 +952,28 @@ public partial class MainWindow
     /// </summary>
     public void NavigateToTopic(Guid topicId)
     {
-        RootNavigation.Navigate(typeof(FeedPage));
+        // Navigate by the specific rail item's Id, NOT by typeof(FeedPage): every rail
+        // item shares TargetPageType=FeedPage, so a type-based navigate always resolves
+        // to the first match ("All topics") and leaves the rail highlighting the wrong
+        // row. Navigating by id activates that exact NavigationViewItem (deactivating the
+        // previously-selected one) and raises SelectionChanged, which drives the feed and
+        // unread active-view through the same path as a user click. Falls back to "All
+        // topics" if the topic is no longer subscribed (user removed it).
+        if (!_railItems.TryGetValue(topicId, out var rail))
+        {
+            RootNavigation.Navigate(AllTopicsItem.Id);
+            return;
+        }
 
-        // The rail's visual selection lands on AllTopicsItem (the first item with
-        // TargetPageType=FeedPage). Setting the VM's CurrentTopicId afterwards drives
-        // the feed content to the requested topic. The rail won't visually highlight
-        // the per-topic item — WPF-UI's NavigationView.SelectedItem setter isn't
-        // public so we can't fix that without poking template internals.
-        var resolved = _railItems.ContainsKey(topicId) ? (Guid?)topicId : null;
-        _feedVm.CurrentTopicId = resolved;
-        _unread.SetActiveView(resolved is { } id ? ActiveView.Topic(id) : ActiveView.AllTopics);
+        // If the topic lives in a group folder, expand it first. NavigationViewItem.Activate
+        // would normally expand the parent, but WPF-UI nulls a child's parent link when it's
+        // unloaded — which a collapsed folder does — so it can't, and the activated topic
+        // would stay hidden inside the collapsed folder. Expanding here also persists the
+        // open state via the folder's IsExpanded watcher.
+        if (_groupFolders.TryGetValue(rail.Group, out var folder))
+            folder.IsExpanded = true;
+
+        RootNavigation.Navigate(rail.Item.Id);
     }
 
     // Restore the size/position/maximized state the user last left the window in. Runs in
