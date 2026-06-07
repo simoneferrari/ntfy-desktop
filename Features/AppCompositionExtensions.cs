@@ -8,6 +8,7 @@ using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Shell;
 using NtfyDesktop.Features.Topics;
 using NtfyDesktop.Features.Unread;
+using NtfyDesktop.Features.Updates;
 
 namespace NtfyDesktop.Features;
 
@@ -25,5 +26,6 @@ public static class AppCompositionExtensions
         services.AddSettings();
         services.AddTopics();
         services.AddUnread();
+        services.AddUpdates();
     }
 }

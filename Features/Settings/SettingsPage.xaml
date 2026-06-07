@@ -271,6 +271,48 @@
                     </Grid>
                 </Border>
 
+                <!-- ======================= UPDATES ======================= -->
+                <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Updates" />
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Check for updates automatically" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Check GitHub for a new release on startup and once a day, and show a banner and a notification when one is available. Updates only download when you choose to install them." />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1"
+                                         VerticalAlignment="Center"
+                                         IsChecked="{Binding AutoUpdateCheckEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Check now" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="{Binding CurrentVersionText}" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}"
+                                          Margin="0,2,0,0"
+                                          Text="{Binding UpdateStatus}"
+                                          Visibility="{Binding HasUpdateStatus, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                        <ui:Button Grid.Column="1"
+                                   Appearance="Secondary"
+                                   Content="Check for updates"
+                                   VerticalAlignment="Center"
+                                   IsEnabled="{Binding CanCheckUpdate}"
+                                   Command="{Binding CheckForUpdatesCommand}" />
+                    </Grid>
+                </Border>
+
                 <!-- ======================= APPEARANCE ======================= -->
                 <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Appearance" />
 

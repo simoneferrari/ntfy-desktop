@@ -104,6 +104,61 @@ public class ToastNotifier
         catch { /* toast delivery failure is non-fatal */ }
     }
 
+    // ===== App-update toasts =====
+    // All share one group/tag so only the latest update-status bubble is shown
+    // (a fresh "available" replaces a stale one; "up to date" replaces it after a
+    // manual check). They bypass the pause / active-hours gate by design — those
+    // govern ntfy messages, not the app telling you about itself.
+
+    private const string UPDATE_GROUP = "ntfy-desktop-update";
+    private const string UPDATE_TAG = "update-status";
+
+    /// <summary>Notifies that a newer version is available. Clicking opens the app,
+    /// where the banner's "Restart &amp; update" button applies it.</summary>
+    public void ShowUpdateAvailable(string version)
+    {
+        var body = string.IsNullOrEmpty(version)
+            ? "A new version is ready. Open ntfy Desktop to install it."
+            : $"Version {version} is ready. Open ntfy Desktop to install it.";
+        ShowAppToast("Update available", body, $"{ProtocolRegistration.SCHEME}://update");
+    }
+
+    /// <summary>Feedback for a manual check that found nothing newer.</summary>
+    public void ShowUpToDate() =>
+        ShowAppToast("You're up to date", "ntfy Desktop is running the latest version.", launchUrl: null);
+
+    /// <summary>Feedback for a manual check that couldn't reach GitHub.</summary>
+    public void ShowUpdateCheckFailed() =>
+        ShowAppToast("Couldn't check for updates", "Please try again later.", launchUrl: null);
+
+    private void ShowAppToast(string title, string body, string? launchUrl)
+    {
+        if (_notifier == null) return;
+
+        try
+        {
+            var launchAttr = launchUrl is null
+                ? string.Empty
+                : $@" activationType=""protocol"" launch=""{EscapeXml(launchUrl)}""";
+
+            var doc = new XmlDocument();
+            doc.LoadXml($"""
+                <toast{launchAttr}>
+                  <visual>
+                    <binding template="ToastGeneric">
+                      <text>{EscapeXml(title)}</text>
+                      <text>{EscapeXml(body)}</text>
+                    </binding>
+                  </visual>
+                </toast>
+                """);
+
+            var toast = new ToastNotification(doc) { Group = UPDATE_GROUP, Tag = UPDATE_TAG };
+            _notifier.Show(toast);
+        }
+        catch { /* toast delivery failure is non-fatal */ }
+    }
+
     private static (string Title, string Body) FormatSummary(int total, IReadOnlyList<(string Label, int Count)> topics)
     {
         var title = $"{total} {(total == 1 ? "message" : "messages")} while you were away";

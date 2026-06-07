@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NtfyDesktop.Core.Messaging;
@@ -7,6 +8,7 @@ using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.History;
 using NtfyDesktop.Features.Settings.Events;
+using NtfyDesktop.Features.Updates;
 
 namespace NtfyDesktop.Features.Settings;
 
@@ -18,6 +20,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly AppSettings _settings;
     private readonly ConnectionManager _connections;
     private readonly HistoryRepository _history;
+    private readonly UpdateService _updates;
 
     private bool _loading;
     private FormSnapshot _snapshot = FormSnapshot.Empty;
@@ -27,6 +30,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         nameof(IsDirty),
         nameof(CanSave),
         nameof(DefaultServerId),
+        // Transient update-check UI — never part of the saved form.
+        nameof(UpdateStatus),
+        nameof(HasUpdateStatus),
+        nameof(IsCheckingUpdate),
+        nameof(CanCheckUpdate),
     ];
 
     // ===== Servers (immediate-persist) =====
@@ -45,14 +53,47 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _autoDownloadAttachments;
     [ObservableProperty] private int _autoDownloadMaxFileMb = 5;
     [ObservableProperty] private int _attachmentCacheMaxMb = 100;
+    [ObservableProperty] private bool _autoUpdateCheckEnabled = true;
 
     [ObservableProperty] private bool _isDirty;
 
-    public SettingsViewModel(AppSettings settings, ConnectionManager connections, HistoryRepository history)
+    // ===== Updates (manual check — transient, not part of the saved form) =====
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateStatus))]
+    private string _updateStatus = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCheckUpdate))]
+    private bool _isCheckingUpdate;
+
+    public bool HasUpdateStatus => UpdateStatus.Length > 0;
+    public bool CanCheckUpdate => !IsCheckingUpdate;
+
+    // Informational version carries the full SemVer including any pre-release suffix
+    // (e.g. 0.7.0-beta.1); the SDK may append "+<commit>" build metadata, which we trim.
+    // Falls back to the numeric assembly version (which can't represent -beta).
+    public string CurrentVersion
+    {
+        get
+        {
+            var info = typeof(SettingsViewModel).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (string.IsNullOrEmpty(info))
+                return typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "";
+
+            var plus = info.IndexOf('+');
+            return plus >= 0 ? info[..plus] : info;
+        }
+    }
+    public string CurrentVersionText => $"You're running version {CurrentVersion}.";
+
+    public SettingsViewModel(AppSettings settings, ConnectionManager connections,
+        HistoryRepository history, UpdateService updates)
     {
         _settings = settings;
         _connections = connections;
         _history = history;
+        _updates = updates;
         Load();
     }
 
@@ -69,6 +110,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         AutoDownloadAttachments = _settings.AutoDownloadAttachments;
         AutoDownloadMaxFileMb   = _settings.AutoDownloadMaxFileMb;
         AttachmentCacheMaxMb    = _settings.AttachmentCacheMaxMb;
+        AutoUpdateCheckEnabled  = _settings.AutoUpdateCheckEnabled;
 
         ReloadServers();
 
@@ -184,6 +226,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.AutoDownloadAttachments = AutoDownloadAttachments;
         _settings.AutoDownloadMaxFileMb   = AutoDownloadMaxFileMb;
         _settings.AttachmentCacheMaxMb    = AttachmentCacheMaxMb;
+
+        var autoUpdateChanged = _settings.AutoUpdateCheckEnabled != AutoUpdateCheckEnabled;
+        _settings.AutoUpdateCheckEnabled = AutoUpdateCheckEnabled;
+
         if (TimeOnly.TryParseExact(ActiveHoursStartText, "HH:mm", out var start))
             _settings.ActiveHoursStart = start;
         if (TimeOnly.TryParseExact(ActiveHoursEndText, "HH:mm", out var end))
@@ -198,11 +244,42 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (railChanged)
             _ = new ServerDisplayChanged().PublishAsync();
 
+        // Let the Updates feature decide what to do (an immediate check on enable) —
+        // it's not Settings' concern.
+        if (autoUpdateChanged)
+            _ = new AutoUpdateCheckSettingChanged(AutoUpdateCheckEnabled).PublishAsync();
+
         return Task.CompletedTask;
     }
 
     [RelayCommand]
     private void Discard() => Load();
+
+    // Manual update check (the "Check for updates" button). CheckAsync raises the
+    // banner + toast itself when something's found; here we drive the inline status
+    // text, including the up-to-date / failed / unsupported cases that produce no event.
+    [RelayCommand]
+    private async Task CheckForUpdatesAsync()
+    {
+        if (IsCheckingUpdate) return;
+
+        IsCheckingUpdate = true;
+        UpdateStatus = "Checking…";
+        try
+        {
+            UpdateStatus = await _updates.CheckAsync() switch
+            {
+                UpdateCheckResult.UpdateAvailable => $"Version {_updates.PendingVersion} is available — use the banner to install it.",
+                UpdateCheckResult.UpToDate        => "You're on the latest version.",
+                UpdateCheckResult.Failed          => "Couldn't check for updates. Please try again later.",
+                _                                 => "Automatic updates aren't available in this build.",
+            };
+        }
+        finally
+        {
+            IsCheckingUpdate = false;
+        }
+    }
 
     private FormSnapshot TakeSnapshot() => new(
         GlobalMinPriority,
@@ -214,7 +291,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ShowServerLabel,
         AutoDownloadAttachments,
         AutoDownloadMaxFileMb,
-        AttachmentCacheMaxMb);
+        AttachmentCacheMaxMb,
+        AutoUpdateCheckEnabled);
 
     private readonly record struct FormSnapshot(
         Priority GlobalMinPriority,
@@ -226,10 +304,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         bool ShowServerLabel,
         bool AutoDownloadAttachments,
         int AutoDownloadMaxFileMb,
-        int AttachmentCacheMaxMb)
+        int AttachmentCacheMaxMb,
+        bool AutoUpdateCheckEnabled)
     {
         public static readonly FormSnapshot Empty = new(
-            Priority.Min, 0, false, false, string.Empty, string.Empty, true, false, 5, 100);
+            Priority.Min, 0, false, false, string.Empty, string.Empty, true, false, 5, 100, true);
     }
 }
 

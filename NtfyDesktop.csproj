@@ -12,8 +12,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
+    <!-- Custom entry point (Program.Main) so the Velopack bootstrap runs before any
+         WPF startup. App.xaml stays the ApplicationDefinition (it also generates an
+         App.Main); StartupObject disambiguates which entry point to use. -->
+    <StartupObject>NtfyDesktop.Program</StartupObject>
+
     <!-- Package metadata -->
-    <Version>0.6.3</Version>
+    <Version>0.6.4</Version>
     <Product>ntfy Desktop</Product>
     <Description>Windows desktop client for ntfy.sh — toast notifications, system tray, in-app feed.</Description>
     <Authors>Simone Ferrari</Authors>
@@ -27,6 +32,7 @@
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.4" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 

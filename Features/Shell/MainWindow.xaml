@@ -35,6 +35,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -71,11 +72,51 @@
             </ui:TitleBar.Header>
         </ui:TitleBar>
 
+        <!-- Update strip: visible once a newer release has been found. The button
+             downloads the update and restarts the app into it. Only ever appears in
+             a Velopack-installed build (the checker no-ops otherwise). -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource SystemFillColorAttentionBackgroundBrush}"
+                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="16,8,16,8"
+                Visibility="{Binding IsUpdateAvailable, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ui:SymbolIcon Grid.Column="0"
+                               Symbol="ArrowDownload24"
+                               Filled="True"
+                               FontSize="16"
+                               VerticalAlignment="Center"
+                               Margin="0,0,10,0" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <ui:TextBlock FontTypography="BodyStrong" Text="{Binding UpdateBannerText}" />
+                    <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                  FontTypography="Caption"
+                                  Text="The update downloads in the background, then the app restarts to finish." />
+                </StackPanel>
+                <ui:Button Grid.Column="2"
+                           Appearance="Primary"
+                           Content="{Binding UpdateButtonLabel}"
+                           IsEnabled="{Binding CanApplyUpdate}"
+                           VerticalAlignment="Center"
+                           Command="{Binding ApplyUpdateCommand}">
+                    <ui:Button.Icon>
+                        <ui:SymbolIcon Symbol="ArrowSync24" Filled="True" />
+                    </ui:Button.Icon>
+                </ui:Button>
+            </Grid>
+        </Border>
+
         <!-- Caution strip: only visible while paused. Loud enough that the
              paused state can't be missed even if the title-bar button is
              ignored. Connections remain active wording is important — users
              may otherwise think they need to reconnect. -->
-        <Border Grid.Row="1"
+        <Border Grid.Row="2"
                 Background="{DynamicResource SystemFillColorCautionBackgroundBrush}"
                 BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                 BorderThickness="0,0,0,1"
@@ -111,7 +152,7 @@
             </Grid>
         </Border>
 
-        <ui:NavigationView Grid.Row="2"
+        <ui:NavigationView Grid.Row="3"
                            x:Name="RootNavigation"
                            IsBackButtonVisible="Collapsed"
                            IsPaneToggleVisible="False"
