@@ -40,18 +40,40 @@
                           Text="{Binding UrlError}"
                           Visibility="{Binding HasUrlError, Converter={StaticResource BoolToVis}}" />
 
-            <ui:TextBlock FontTypography="Subtitle" Text="Access token" />
-            <ui:TextBlock Margin="0,2,0,4"
-                          FontTypography="Caption"
-                          Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                          Text="Optional bearer token for authenticated topics." />
-            <PasswordBox x:Name="TokenBox" PasswordChanged="OnTokenChanged" />
+            <ui:TextBlock FontTypography="Subtitle" Text="Authentication" />
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                <RadioButton Content="Access token"
+                             GroupName="Auth"
+                             Margin="0,0,16,0"
+                             IsChecked="{Binding UseToken}" />
+                <RadioButton Content="Username &amp; password"
+                             GroupName="Auth"
+                             IsChecked="{Binding UsePassword}" />
+            </StackPanel>
+
+            <!-- Access token -->
+            <StackPanel Visibility="{Binding UseToken, Converter={StaticResource BoolToVis}}">
+                <ui:TextBlock Margin="0,0,0,4"
+                              FontTypography="Caption"
+                              Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                              Text="Optional bearer token for authenticated topics." />
+                <PasswordBox x:Name="TokenBox" PasswordChanged="OnTokenChanged" />
+            </StackPanel>
+
+            <!-- Username & password (HTTP Basic) -->
+            <StackPanel Visibility="{Binding UsePassword, Converter={StaticResource BoolToVis}}">
+                <ui:TextBox Margin="0,0,0,8"
+                            PlaceholderText="Username"
+                            Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" />
+                <PasswordBox x:Name="PasswordInput" PasswordChanged="OnPasswordChanged" />
+            </StackPanel>
+
             <ui:TextBlock Margin="0,4,0,0"
                           TextWrapping="Wrap"
                           FontTypography="Caption"
                           Foreground="{DynamicResource SystemFillColorCautionBrush}"
-                          Text="⚠ This server uses plain HTTP. The token will not be sent — switch to HTTPS for authentication."
-                          Visibility="{Binding HasInsecureTokenWarning, Converter={StaticResource BoolToVis}}" />
+                          Text="⚠ This server uses plain HTTP. Credentials will not be sent — switch to HTTPS for authentication."
+                          Visibility="{Binding HasInsecureCredentialsWarning, Converter={StaticResource BoolToVis}}" />
 
             <StackPanel Orientation="Horizontal"
                         HorizontalAlignment="Right"

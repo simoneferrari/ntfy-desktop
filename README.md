@@ -90,7 +90,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Image attachments inline in the feed
 
 **0.7 — Polish**
-- [ ] Username/password authentication (in addition to access tokens)
+- [x] Username/password authentication (in addition to access tokens)
 - [x] Markdown subset rendering in message bodies (bold, italic, links, code)
 - [x] Automatic updates — Velopack-based self-updating installer and portable build, fed by GitHub Releases, with an in-app banner/notification, a manual check, `stable` / `dev` channels, and in-app channel switching *(shipped early, v0.6.4–0.6.5)*
 - [x] Update download progress — a progress bar in the update banner while an update downloads, so large updates don't look stalled

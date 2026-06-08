@@ -195,11 +195,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (original is null)
             return; // brand-new server has no topics yet — nothing to (re)connect
 
-        // Only the connection-relevant fields matter. Compare the decrypted token,
-        // not the encrypted blob (DPAPI re-encrypts non-deterministically each save).
+        // Only the connection-relevant fields matter. Compare the effective Authorization
+        // header (covers method switch + token/username/password), not the encrypted blob
+        // (DPAPI re-encrypts non-deterministically each save).
         var connectionChanged =
             !string.Equals(original.Url, edited.Url, StringComparison.Ordinal) ||
-            !string.Equals(original.GetAccessToken(), edited.GetAccessToken(), StringComparison.Ordinal);
+            !string.Equals(original.GetAuthorizationHeader(), edited.GetAuthorizationHeader(), StringComparison.Ordinal);
 
         if (connectionChanged)
             await _connections.RebuildServerAsync(edited.Id);

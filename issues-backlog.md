@@ -28,12 +28,6 @@ Internal notes behind unshipped [README.md](README.md) roadmap items: caveats an
 "stuff to remember when we get there," so we don't re-litigate them. Rationale for
 *shipped* features lives in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-### Username/password authentication (0.7)
-
-- ntfy supports HTTP Basic auth (username + password) as an alternative to access tokens. Add it alongside the existing per-server token (`ServerConfig`): a server uses either a token or a username/password pair.
-- Cleanest path is a standard `Authorization: Basic <base64(user:pass)>` header — over https only, same cleartext refusal as the token. (ntfy also accepts Basic credentials as a base64 bearer-style value, but Basic is simpler.)
-- UI: extend the server editor (`ServerEditorViewModel`/dialog) with an auth-method choice; store the password DPAPI-encrypted like the token.
-
 ### Socket multiplexing (per server)
 
 - Today `ConnectionManager` opens **one WebSocket per topic**; the official web client multiplexes all of a server's topics onto one socket (`wss://server/topic1,topic2/ws`).
@@ -50,6 +44,20 @@ Internal notes behind unshipped [README.md](README.md) roadmap items: caveats an
 - Register `HKCU\Software\Classes\ntfy` per-user; the handler should open the app and trigger Add Topic with the URL prefilled.
 
 ## Resolved
+
+#### Username/password authentication (0.7)
+
+A server now authenticates with **either** an access token **or** a username/password pair (HTTP
+Basic), chosen per server in the server editor. `ServerConfig` carries `AuthMethod`
+(`Token`/`Password`, defaulting to `Token` so older `settings.json` deserialise unchanged), a
+plaintext `Username`, and a DPAPI-encrypted `EncryptedPassword` alongside the existing encrypted
+token. A single `ServerConfig.GetAuthorizationHeader()` produces the full `Authorization` value —
+`Bearer <token>` or `Basic <base64(user:pass)>` — and is now the one source of truth for every
+authenticated request: the subscribe socket (`TopicConnection`, which still refuses to send it over
+cleartext `ws://`) and same-origin https attachment downloads (`AttachmentImageService`). The editor
+shows a radio choice (token ↔ username & password) toggling the relevant fields, the password pumped
+through the non-bindable `PasswordBox` like the token, and the insecure-http warning now covers either
+credential. Branch `feature/username-password-auth`.
 
 #### Markdown subset rendering in message bodies (0.7)
 

@@ -235,7 +235,7 @@ public sealed class ConnectionManager : IAsyncDisposable
             topic.Name,
             topic.ServerId,
             () => server.Url,
-            server.GetAccessToken,
+            server.GetAuthorizationHeader,
             () => _history.GetSinceValue(topic.Id));
 
         conn.MessageReceived += OnMessageReceived;

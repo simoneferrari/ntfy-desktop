@@ -13,7 +13,7 @@ namespace NtfyDesktop.Features.Connections;
 // the gap left by an app restart or any mid-session reconnect. A timestamp (not a message
 // id) is used so a stale cursor still works: an id that's aged out of the server cache
 // makes ntfy return nothing, whereas an old timestamp just returns whatever's still cached.
-public sealed class TopicConnection(Guid topicId, string topicName, Guid serverId, Func<string> getServerUrl, Func<string> getToken, Func<string?> getSince) : IAsyncDisposable
+public sealed class TopicConnection(Guid topicId, string topicName, Guid serverId, Func<string> getServerUrl, Func<string?> getAuthHeader, Func<string?> getSince) : IAsyncDisposable
 {
     private CancellationTokenSource _cts = new();
     private Task _runTask = Task.CompletedTask;
@@ -91,13 +91,14 @@ public sealed class TopicConnection(Guid topicId, string topicName, Guid serverI
 
                 var uri = BuildWebSocketUri(_resumedSince);
                 var isSecure = uri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase);
-                var token = getToken();
+                var authHeader = getAuthHeader();
 
-                // Refuse to attach the bearer token over cleartext (ws://). The
-                // Settings page warns the user; the connection itself still goes
-                // through unauthenticated, which is the safe failure mode.
-                if (!string.IsNullOrEmpty(token) && isSecure)
-                    ws.Options.SetRequestHeader("Authorization", $"Bearer {token}");
+                // Refuse to attach credentials over cleartext (ws://) — covers both the
+                // bearer token and HTTP Basic. The Settings page warns the user; the
+                // connection itself still goes through unauthenticated, which is the safe
+                // failure mode.
+                if (!string.IsNullOrEmpty(authHeader) && isSecure)
+                    ws.Options.SetRequestHeader("Authorization", authHeader);
 
                 await ws.ConnectAsync(uri, ct);
 

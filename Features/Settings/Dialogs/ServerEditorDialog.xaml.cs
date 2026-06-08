@@ -6,7 +6,7 @@ namespace NtfyDesktop.Features.Settings.Dialogs;
 public partial class ServerEditorDialog : FluentWindow
 {
     private readonly ServerEditorViewModel _vm;
-    private bool _suspendTokenSync;
+    private bool _suspendSecretSync;
 
     public ServerConfig? Result { get; private set; }
 
@@ -17,16 +17,23 @@ public partial class ServerEditorDialog : FluentWindow
         DataContext = _vm;
         Title = existing is null ? "Add server" : "Edit server";
 
-        // PasswordBox.Password isn't bindable; pump it in manually.
-        _suspendTokenSync = true;
+        // PasswordBox.Password isn't bindable; pump both secret fields in manually.
+        _suspendSecretSync = true;
         TokenBox.Password = _vm.AccessToken;
-        _suspendTokenSync = false;
+        PasswordInput.Password = _vm.Password;
+        _suspendSecretSync = false;
     }
 
     private void OnTokenChanged(object sender, RoutedEventArgs e)
     {
-        if (_suspendTokenSync) return;
+        if (_suspendSecretSync) return;
         _vm.AccessToken = TokenBox.Password;
+    }
+
+    private void OnPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suspendSecretSync) return;
+        _vm.Password = PasswordInput.Password;
     }
 
     private void OnCancelClicked(object sender, RoutedEventArgs e)

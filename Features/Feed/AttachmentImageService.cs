@@ -120,8 +120,8 @@ public sealed class AttachmentImageService
     private async Task<byte[]?> DownloadAsync(string url, Guid topicId, long maxBytes, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        if (ResolveAuthToken(url, topicId) is { } token)
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        if (ResolveAuthHeader(url, topicId) is { } authHeader)
+            request.Headers.Authorization = System.Net.Http.Headers.AuthenticationHeaderValue.Parse(authHeader);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!response.IsSuccessStatusCode) return null;
@@ -209,9 +209,10 @@ public sealed class AttachmentImageService
     /// The bearer token to send for this attachment URL, or null. Only returned when the URL
     /// is same-origin (scheme+host+port) with the topic's configured server AND that origin is
     /// https — so a publisher can't point <c>attachment.url</c> at their own host to harvest the
-    /// token, and the token is never sent over cleartext.
+    /// credentials, and they're never sent over cleartext. Returns the full Authorization header
+    /// value (Bearer or Basic), so token and username/password servers authenticate the same way.
     /// </summary>
-    private string? ResolveAuthToken(string url, Guid topicId)
+    private string? ResolveAuthHeader(string url, Guid topicId)
     {
         var topic = _settings.GetTopicById(topicId);
         var server = topic is null ? null : _settings.GetServer(topic.ServerId);
@@ -226,8 +227,7 @@ public sealed class AttachmentImageService
                          && attachmentUri.Port == serverUri.Port;
         if (!sameOrigin) return null;
 
-        var token = server.GetAccessToken();
-        return string.IsNullOrEmpty(token) ? null : token;
+        return server.GetAuthorizationHeader();
     }
 
     // Cache file = hash of the URL (collision-free, no path-traversal from the name) plus the
