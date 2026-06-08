@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NtfyDesktop.Core.Messaging;
@@ -35,6 +34,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         nameof(HasUpdateStatus),
         nameof(IsCheckingUpdate),
         nameof(CanCheckUpdate),
+        // Channel switching acts immediately (like server CRUD), not via Save.
+        nameof(UpdatesSupported),
+        nameof(InstalledChannel),
+        nameof(SelectedChannel),
+        nameof(IsChannelSwitchPending),
+        nameof(ChannelStatusText),
+        nameof(SwitchButtonText),
+        nameof(RevertButtonText),
     ];
 
     // ===== Servers (immediate-persist) =====
@@ -69,23 +76,41 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool HasUpdateStatus => UpdateStatus.Length > 0;
     public bool CanCheckUpdate => !IsCheckingUpdate;
 
-    // Informational version carries the full SemVer including any pre-release suffix
-    // (e.g. 0.7.0-beta.1); the SDK may append "+<commit>" build metadata, which we trim.
-    // Falls back to the numeric assembly version (which can't represent -beta).
-    public string CurrentVersion
+    // Carries the full SemVer including any pre-release suffix (e.g. 0.7.0-dev.1),
+    // resolved once by AppVersion.
+    public string CurrentVersion => AppVersion.Current;
+    public string CurrentVersionText => $"You're running version {CurrentVersion}.";
+
+    // ===== Update channel (immediate action, not part of the saved form) =====
+    // Whether the channel selector is meaningful — only on a Velopack install (hidden
+    // from the IDE / non-installed runs, where switching can't apply).
+    public bool UpdatesSupported => _updates.IsSupported;
+
+    // The channel actually running now vs. the one the user has selected; they differ
+    // while a switch is staged but not yet applied.
+    public string InstalledChannel => _updates.InstalledChannel;
+    public string SelectedChannel => _updates.SelectedChannel;
+    public bool IsChannelSwitchPending => _updates.IsChannelSwitchPending;
+
+    // The channel a (non-pending) switch would move to — the other one.
+    public string TargetChannel =>
+        InstalledChannel == UpdateChannels.Stable ? UpdateChannels.Dev : UpdateChannels.Stable;
+
+    public string SwitchButtonText => $"Switch to {TargetChannel} channel";
+    public string RevertButtonText => $"Stay on {InstalledChannel}";
+
+    public string ChannelStatusText
     {
         get
         {
-            var info = typeof(SettingsViewModel).Assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            if (string.IsNullOrEmpty(info))
-                return typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "";
-
-            var plus = info.IndexOf('+');
-            return plus >= 0 ? info[..plus] : info;
+            if (IsChannelSwitchPending)
+                return $"Switching to the {SelectedChannel} channel — use the update banner to " +
+                       "apply it, or revert below.";
+            return InstalledChannel == UpdateChannels.Dev
+                ? "You're on the dev channel — new features land here first, but builds may be less stable."
+                : "You're on the stable channel. Switch to dev to get new features early (they may be less stable).";
         }
     }
-    public string CurrentVersionText => $"You're running version {CurrentVersion}.";
 
     public SettingsViewModel(AppSettings settings, ConnectionManager connections,
         HistoryRepository history, UpdateService updates)
@@ -113,10 +138,24 @@ public sealed partial class SettingsViewModel : ObservableObject
         AutoUpdateCheckEnabled  = _settings.AutoUpdateCheckEnabled;
 
         ReloadServers();
+        RefreshChannel();
 
         _snapshot = TakeSnapshot();
         _loading = false;
         IsDirty = false;
+    }
+
+    // Re-raise the computed channel getters (which read live off UpdateService) so the
+    // selector reflects the current state when the page loads and after a switch.
+    private void RefreshChannel()
+    {
+        OnPropertyChanged(nameof(UpdatesSupported));
+        OnPropertyChanged(nameof(InstalledChannel));
+        OnPropertyChanged(nameof(SelectedChannel));
+        OnPropertyChanged(nameof(IsChannelSwitchPending));
+        OnPropertyChanged(nameof(ChannelStatusText));
+        OnPropertyChanged(nameof(SwitchButtonText));
+        OnPropertyChanged(nameof(RevertButtonText));
     }
 
     public void ReloadServers()
@@ -278,6 +317,30 @@ public sealed partial class SettingsViewModel : ObservableObject
         finally
         {
             IsCheckingUpdate = false;
+        }
+    }
+
+    // Applies a channel switch (the page confirms first). Delegates to UpdateService —
+    // which persists the choice, repoints the updater, and re-checks — then surfaces the
+    // outcome inline and refreshes the selector. A found cross-channel build (a downgrade
+    // for dev→stable) also raises the banner/toast via the same check.
+    public async Task SetChannelAsync(string channel)
+    {
+        if (IsCheckingUpdate) return;
+
+        IsCheckingUpdate = true;
+        UpdateStatus = "Checking…";
+        try
+        {
+            await _updates.SetChannelAsync(channel);
+            UpdateStatus = _updates.IsUpdatePending
+                ? $"Version {_updates.PendingVersion} is available on the {channel} channel — use the banner to install it."
+                : $"You're on the latest {channel} version.";
+        }
+        finally
+        {
+            IsCheckingUpdate = false;
+            RefreshChannel();
         }
     }
 

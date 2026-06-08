@@ -313,6 +313,35 @@
                     </Grid>
                 </Border>
 
+                <!-- Channel selector — only on a Velopack install (hidden from IDE runs). -->
+                <Border Style="{StaticResource SettingRow}"
+                        Visibility="{Binding UpdatesSupported, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Update channel" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="{Binding ChannelStatusText}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:Button Appearance="Secondary"
+                                       Content="{Binding SwitchButtonText}"
+                                       VerticalAlignment="Center"
+                                       IsEnabled="{Binding CanCheckUpdate}"
+                                       Visibility="{Binding IsChannelSwitchPending, Converter={StaticResource InverseBoolToVis}}"
+                                       Click="OnSwitchChannelClicked" />
+                            <ui:Button Appearance="Secondary"
+                                       Content="{Binding RevertButtonText}"
+                                       VerticalAlignment="Center"
+                                       IsEnabled="{Binding CanCheckUpdate}"
+                                       Visibility="{Binding IsChannelSwitchPending, Converter={StaticResource BoolToVis}}"
+                                       Click="OnRevertChannelClicked" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- ======================= APPEARANCE ======================= -->
                 <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Appearance" />
 

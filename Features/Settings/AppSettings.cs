@@ -199,6 +199,13 @@ public class AppSettings
     /// installed (Velopack) build — a manual check is always available regardless.</summary>
     public bool AutoUpdateCheckEnabled { get; set; } = true;
 
+    /// <summary>The update channel the user has opted into ("stable" or "dev"), driving
+    /// which releases the in-app updater follows. Empty means "follow the channel this
+    /// build was installed from" (derived from the running version's pre-release suffix).
+    /// Set when the user switches channel in Settings; a dev→stable switch is applied as a
+    /// downgrade. See <see cref="Updates.UpdateService"/>.</summary>
+    public string UpdateChannel { get; set; } = "";
+
     /// <summary>Group names whose rail folder is collapsed. Persisted so the
     /// expand/collapse state survives restarts.</summary>
     public List<string> CollapsedGroups { get; set; } = new();
