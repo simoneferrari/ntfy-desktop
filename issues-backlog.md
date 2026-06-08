@@ -28,6 +28,28 @@ Internal notes behind unshipped [README.md](README.md) roadmap items: caveats an
 "stuff to remember when we get there," so we don't re-litigate them. Rationale for
 *shipped* features lives in [ARCHITECTURE.md](ARCHITECTURE.md).
 
+### Publish messages (compose) — 0.8
+
+- The app is currently receive-only; ntfy is two-way. A compose window POSTs to a topic with title, body, priority, tags, `click` URL, and (stretch) action buttons — turning this into a full client. Supersedes the old "test-publish dialog" idea (dropped from 0.9; a real compose covers it).
+- Reuse what exists: the server list + `ServerConfig.GetAuthorizationHeader()` for auth (the one source of truth for authenticated requests — see the auth note below), and the receive-side tag/markdown/action rendering as a live preview.
+- Caveats: respect the same insecure-`http` credential warning as elsewhere; publish is `POST {server}/{topic}` (JSON body or headers — pick one and stay consistent); surface server errors (rate limit / 4xx) inline rather than a silent failure.
+
+### Code signing (SignPath Foundation) — not milestone-gated
+
+- Pursue the free [SignPath Foundation](https://signpath.org/) OSS programme (Azure Artifact Signing is **not** free — needs a paid subscription). Key on their HSM; GitHub Actions connector slots into the Velopack release pipeline.
+- **Approval is the long pole, not the integration.** [Terms](https://signpath.org/terms.html) require: OSI license (MIT ✓), actively maintained + already released ✓, but executables must show "verifiable reputation" — a young pre-release may be asked to wait for download history. Also required: MFA on repo *and* SignPath, a documented **code-signing policy page** on the project homepage, and an automated/verifiable CI build with product-name/version metadata set.
+- Plan as "apply now; ship signing once granted" — don't gate the 0.8 release on it. Removes the SmartScreen "Windows protected your PC" prompt the README currently documents.
+
+### Per-topic custom notification sound / icon — 0.8
+
+- Today sound is priority-based and global. Power-user ask: a **distinct sound per topic** so the source is identifiable by ear without looking. Feasible via custom audio in the toast XML (per-topic config on the topic, alongside display name / server).
+- **Built-in library + fully custom.** The picker should default to a **curated set of bundled sounds and icons** chosen from a dropdown (the common case — no file wrangling), with a **"Custom…"** option to point at any local sound/image file. For sounds this means either the Windows `ms-winsoundevent:` presets (zero-bundle) and/or a few audio files we ship and reference via `ms-appdata`/`ms-appx`; for icons, a small bundled set alongside the user's own image. A custom file should be **copied under the data dir** so the toast can always resolve it (and it survives the source file moving) — and is covered by settings export if/when that lands.
+- Adjacent smaller win: ntfy carries a per-message `icon` field — surface it in the feed (and toast where possible). Separable from the per-topic icon work.
+
+### Timed snooze / mute — 0.8
+
+- Auto-expiring mute ("silence for 1h / 8h / until tomorrow") for a topic or globally, vs. today's manual pause toggle + active-hours window. Reuse the existing pause machinery; the new part is an expiry timestamp + a timer that lifts it (and survives restart — persist the until-time, re-arm on launch, lift immediately if already past).
+
 ### Socket multiplexing (per server)
 
 - Today `ConnectionManager` opens **one WebSocket per topic**; the official web client multiplexes all of a server's topics onto one socket (`wss://server/topic1,topic2/ws`).

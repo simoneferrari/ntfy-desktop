@@ -66,6 +66,8 @@ A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics acr
 
 Planned, in rough order. Open an issue if you'd like to discuss priorities or propose alternatives.
 
+**Code signing** sits outside the milestone order: we're applying to the free [SignPath Foundation](https://signpath.org/) open-source programme so the installer and updates are signed, removing the Windows SmartScreen prompt on first run (see [First run: Windows SmartScreen](#first-run-windows-smartscreen)). It ships whenever approval lands, independent of the milestones below.
+
 **0.2 — Quick wins** (shipped in v0.2)
 - [x] Click-through on toasts (open the message's `click` URL)
 - [x] Open the app feed when a toast is clicked
@@ -96,16 +98,21 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Update download progress — a progress bar in the update banner while an update downloads, so large updates don't look stalled
 - [x] Encrypt `history.db` at rest
 
-**0.8 — Reliability, feed & update polish**
+**0.8 — Sending, reliability & notification control**
+- [ ] Publish messages — a compose window to send a notification to a topic (title, body, priority, tags, `click` URL, action buttons), making the app a full two-way ntfy client rather than receive-only
 - [ ] Multiplex topics per server onto a single WebSocket (like the official web client; fewer sockets, avoids per-visitor connection/subscription limits)
+- [ ] Per-topic notification sound and icon — choose from a built-in library of sounds and icons, or supply your own file, so a topic can be identified by ear (and at a glance)
+- [ ] Timed snooze/mute — silence a topic (or everything) for 1h / 8h / until tomorrow, auto-expiring rather than a manual toggle
+
+**0.9 — Quality-of-life & polish**
+- [ ] Mark all as read — clear unread state in bulk, per topic and across all topics
 - [ ] Selectable message text in the feed (select and copy a message body)
 - [ ] Settings import/export
 - [ ] Update-experience polish — a manual "check for updates" in the main-window title bar, immediate feedback when checking from the tray, a more frequent background check, and a refined download-progress design
 - [x] Unread/read state with per-topic and All-topics badges in the rail *(shipped early)*
 
-**0.9 — Niche & nice-to-haves**
+**0.10 — Niche & nice-to-haves**
 - [ ] Windows Focus Assist integration
-- [ ] Test-publish dialog
 - [ ] `ntfy://` URL scheme handler
 - [ ] Localisation
 
