@@ -62,6 +62,41 @@ A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics acr
 - Single-instance; runs in the background after the window is closed
 - Optional custom data directory via `--data-path` (useful for portable use or multiple profiles)
 
+## Requirements
+
+| | |
+|---|---|
+| **OS** | Windows 10 1809 (build 17763) or later |
+| **Runtime** | .NET 10 desktop runtime (bundled in published builds) |
+| **Build** | .NET 10 SDK |
+
+## Installation
+
+Two options on the [latest release](../../releases/latest) page, both of which keep themselves up to date automatically:
+
+- **Installer (recommended)** — download **`NtfyDesktop-stable-Setup.exe`** and run it. It installs for the current user (no administrator rights required) under `%LocalAppData%\NtfyDesktop`, launches the app, and adds a Start-menu shortcut.
+- **Portable (no install)** — download **`NtfyDesktop-stable-Portable.zip`**, extract it anywhere, and run `NtfyDesktop.exe`.
+
+**Updates are automatic.** The app checks GitHub Releases on startup and once a day; when a newer version is available it shows a banner with a **Restart & update** button that downloads the update and relaunches. You never need to re-download. (You can turn the automatic check off, or check manually, in **Settings → Updates**.)
+
+> **Want the latest features early?** Pre-release **dev** builds (`NtfyDesktop-dev-Setup.exe`) are published to the [releases](../../releases) page as features land. They're rougher and may be buggy, but they self-update through every dev build just like the stable channel. Switch between the stable and dev channels in **Settings → Updates** (the app then moves you to the other channel on its next update) — or install the matching Setup directly.
+
+### First run: Windows SmartScreen
+
+The app is not yet code-signed, so the first time you run it Windows SmartScreen may show a *"Windows protected your PC"* dialog. This is expected for unsigned software that has not yet built up a download reputation — it does not indicate a problem with the application. To continue, click **More info**, then **Run anyway**.
+
+If you prefer to verify the download first, every release's notes include a [VirusTotal](https://www.virustotal.com/) scan link for that build; you can also upload the downloaded file to VirusTotal yourself. Code signing is on the roadmap, which will remove this prompt.
+
+## Usage
+
+1. Launch the app — it appears in the system tray.
+2. Double-click the tray icon (or click **Show**) to open the window.
+3. Open **Settings → Servers**. A default `https://ntfy.sh` server is preconfigured; add or edit servers (and access tokens) as needed.
+4. Click **Add topic** in the navigation rail, choose its server, and optionally give it a display name.
+5. Messages arrive as Windows toasts and accumulate in the in-app feed.
+
+Settings, history, and the encrypted access tokens are stored under `%AppData%\NtfyDesktop\` by default. Pass `--data-path <dir>` at launch to use a different location.
+
 ## Roadmap
 
 Planned, in rough order. Open an issue if you'd like to discuss priorities or propose alternatives.
@@ -116,31 +151,6 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [ ] `ntfy://` URL scheme handler
 - [ ] Localisation
 
-## Requirements
-
-| | |
-|---|---|
-| **OS** | Windows 10 1809 (build 17763) or later |
-| **Runtime** | .NET 10 desktop runtime (bundled in published builds) |
-| **Build** | .NET 10 SDK |
-
-## Installation
-
-Two options on the [latest release](../../releases/latest) page, both of which keep themselves up to date automatically:
-
-- **Installer (recommended)** — download **`NtfyDesktop-stable-Setup.exe`** and run it. It installs for the current user (no administrator rights required) under `%LocalAppData%\NtfyDesktop`, launches the app, and adds a Start-menu shortcut.
-- **Portable (no install)** — download **`NtfyDesktop-stable-Portable.zip`**, extract it anywhere, and run `NtfyDesktop.exe`.
-
-**Updates are automatic.** The app checks GitHub Releases on startup and once a day; when a newer version is available it shows a banner with a **Restart & update** button that downloads the update and relaunches. You never need to re-download. (You can turn the automatic check off, or check manually, in **Settings → Updates**.)
-
-> **Want the latest features early?** Pre-release **dev** builds (`NtfyDesktop-dev-Setup.exe`) are published to the [releases](../../releases) page as features land. They're rougher and may be buggy, but they self-update through every dev build just like the stable channel. Switch between the stable and dev channels in **Settings → Updates** (the app then moves you to the other channel on its next update) — or install the matching Setup directly.
-
-### First run: Windows SmartScreen
-
-The app is not yet code-signed, so the first time you run it Windows SmartScreen may show a *"Windows protected your PC"* dialog. This is expected for unsigned software that has not yet built up a download reputation — it does not indicate a problem with the application. To continue, click **More info**, then **Run anyway**.
-
-If you prefer to verify the download first, every release's notes include a [VirusTotal](https://www.virustotal.com/) scan link for that build; you can also upload the downloaded file to VirusTotal yourself. Code signing is on the roadmap, which will remove this prompt.
-
 ## Building from source
 
 ```bash
@@ -156,16 +166,6 @@ To publish a self-contained single-file executable:
 ```bash
 dotnet publish NtfyDesktop.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/
 ```
-
-## Usage
-
-1. Launch the app — it appears in the system tray.
-2. Double-click the tray icon (or click **Show**) to open the window.
-3. Open **Settings → Servers**. A default `https://ntfy.sh` server is preconfigured; add or edit servers (and access tokens) as needed.
-4. Click **Add topic** in the navigation rail, choose its server, and optionally give it a display name.
-5. Messages arrive as Windows toasts and accumulate in the in-app feed.
-
-Settings, history, and the encrypted access tokens are stored under `%AppData%\NtfyDesktop\` by default. Pass `--data-path <dir>` at launch to use a different location.
 
 ## Architecture
 
