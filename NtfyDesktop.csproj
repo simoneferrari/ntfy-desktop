@@ -18,7 +18,7 @@
     <StartupObject>NtfyDesktop.Program</StartupObject>
 
     <!-- Package metadata -->
-    <Version>0.7.0</Version>
+    <Version>0.7.0-dev.4</Version>
     <Product>ntfy Desktop</Product>
     <Description>Windows desktop client for ntfy.sh — toast notifications, system tray, in-app feed.</Description>
     <Authors>Simone Ferrari</Authors>
