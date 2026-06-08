@@ -9,8 +9,8 @@
 | MVVM | CommunityToolkit.Mvvm 8.4.0 — `[ObservableProperty]`, `[RelayCommand]`, `[NotifyPropertyChangedFor]` |
 | DI / hosting | Microsoft.Extensions.Hosting (Generic Host); singletons for VMs, `BackgroundService` for hosted work |
 | Tray | H.NotifyIcon.Wpf 2.4.1 |
-| Persistence | Microsoft.Data.Sqlite (history) + System.Text.Json (settings) |
-| Security | DPAPI (`ProtectedData`, `CurrentUser`) for access token at rest |
+| Persistence | Microsoft.Data.Sqlite.Core + SQLite3MC (encrypted history) + System.Text.Json (settings) |
+| Security | DPAPI (`ProtectedData`, `CurrentUser`) for access token + history-DB key at rest |
 | Messaging | In-process event bus (`Core/Messaging`: `IEvent` + `EventBus`, CommunityToolkit `WeakReferenceMessenger` under the hood). UI subscribers marshal via `ThreadOption.UIThread`. See `docs/events.md`. |
 
 ## Layout
@@ -85,7 +85,7 @@ The Velopack updater (Features/Updates) follows a user-selectable channel: `AppS
 
 ### History
 
-`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **not** encrypted (acknowledged tech debt). A second table, `topic_cursor`, holds the per-topic ntfy `since=` catch-up cursor (a Unix timestamp) — separate from `messages` precisely so retention/deletes don't rewind it (see Connections → Catch-up). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The `messages.attachment` column stores the raw ntfy `attachment` JSON object (`{ name, type, size, expires, url }`) as a single forward-compatible blob, added via the `EnsureColumn` migration helper (see Feed → Attachments). The repository publishes `MessageInserted` (always) and `MessagesDeleted(topicId, source, attachmentUrls)` (after any delete — `source` ∈ {Feed, Removal, Retention} lets a consumer ignore deletes it originated; `attachmentUrls`, gathered just before the rows go, lets the attachment cache drop their files) on the bus, so consumers stay in sync without coupling to each caller.
+`HistoryRepository` wraps SQLite. `HistoryRetentionService` (BackgroundService) sweeps old rows hourly. The database is **encrypted at rest** via SQLite3 Multiple Ciphers (default ChaCha20-Poly1305): the `Microsoft.Data.Sqlite.Core` + `SQLite3MC.PCLRaw.bundle` packages replace the bundled plaintext SQLite, and every connection is unlocked with `PRAGMA key` (not the `Password` connection-string keyword — that doesn't round-trip with SQLite3MC's default cipher; `PRAGMA key` must be the first statement on each connection). The key is a per-install random passphrase wrapped with DPAPI (`CurrentUser`) in `settings.json` (`AppSettings.GetOrCreateHistoryKey`, via the same `TokenProtector` as the access token). A pre-encryption (plaintext) database is migrated in place on first launch via `PRAGMA rekey` (`HistoryRepository.MigrateToEncryptedIfNeeded`, run in the constructor before any keyed connection): it probes the file with no key, and rekeys it if the read succeeds (an already-encrypted file throws and is left alone). A second table, `topic_cursor`, holds the per-topic ntfy `since=` catch-up cursor (a Unix timestamp) — separate from `messages` precisely so retention/deletes don't rewind it (see Connections → Catch-up). The `messages.read` column (0/1) backs unread tracking; on first add it marks all existing rows read so upgraders don't see a badge flood. The `messages.attachment` column stores the raw ntfy `attachment` JSON object (`{ name, type, size, expires, url }`) as a single forward-compatible blob, added via the `EnsureColumn` migration helper (see Feed → Attachments). The repository publishes `MessageInserted` (always) and `MessagesDeleted(topicId, source, attachmentUrls)` (after any delete — `source` ∈ {Feed, Removal, Retention} lets a consumer ignore deletes it originated; `attachmentUrls`, gathered just before the rows go, lets the attachment cache drop their files) on the bus, so consumers stay in sync without coupling to each caller.
 
 ### Feed
 
@@ -169,5 +169,5 @@ feed row.
 | Access token at rest | DPAPI-encrypted (`CurrentUser` scope) in `settings.json` |
 | Token over cleartext | `TopicConnection` refuses bearer header over `ws://` / `http://` |
 | Attachment downloads | Bearer token sent only to a same-origin (scheme+host+port) **https** attachment URL on the topic's server — never to a publisher-supplied external host, never over cleartext (`AttachmentImageService.ResolveAuthToken`) |
-| History database | **Not encrypted** — acknowledged tech debt |
+| History database | Encrypted at rest (SQLite3MC, ChaCha20-Poly1305); per-install key is DPAPI-wrapped (`CurrentUser`) in `settings.json`. Plaintext DBs migrate in place via `PRAGMA rekey` on first launch |
 | Exception output | `ex.ToString()` may include local paths — decision deferred |

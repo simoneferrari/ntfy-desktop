@@ -17,6 +17,11 @@ public static class Program
         // immediately and we start WPF as usual.
         VelopackApp.Build().Run();
 
+        // Register the SQLCipher native provider for Microsoft.Data.Sqlite.Core before any
+        // SqliteConnection is opened (HistoryRepository opens its first during host startup).
+        // Idempotent; explicit so we never depend on bundle auto-init being present.
+        SQLitePCL.Batteries_V2.Init();
+
         var app = new App();
         app.InitializeComponent();
         app.Run();

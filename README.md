@@ -53,6 +53,7 @@ A Windows desktop client for [ntfy](https://ntfy.sh) — subscribe to topics acr
 
 **Security**
 - Per-server access tokens encrypted at rest with Windows DPAPI
+- Message history database encrypted at rest (SQLite3 Multiple Ciphers; key wrapped with Windows DPAPI)
 - Bearer tokens are never sent over plain `ws://` / `http://`
 
 **Application**
@@ -92,7 +93,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [ ] Username/password authentication (in addition to access tokens)
 - [ ] Markdown subset rendering in message bodies (bold, italic, links, code)
 - [x] Automatic updates — Velopack-based self-updating installer and portable build, fed by GitHub Releases, with an in-app banner/notification, a manual check, `stable` / `dev` channels, and in-app channel switching *(shipped early, v0.6.4–0.6.5)*
-- [ ] Encrypt `history.db` at rest
+- [x] Encrypt `history.db` at rest
 
 **Later**
 - [x] Unread/read state with per-topic and All-topics badges in the rail

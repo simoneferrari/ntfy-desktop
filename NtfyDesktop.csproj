@@ -30,7 +30,14 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
+    <!-- .Core (no bundled native SQLite) + the SQLite3 Multiple Ciphers batteries bundle, so
+         history.db is encrypted at rest (PRAGMA key/rekey via the Password connection-string
+         keyword). SQLite3MC is the actively-maintained, free, open-source encryption build by
+         the SQLite3MC author; it replaces the deprecated SQLitePCLRaw.bundle_e_sqlcipher /
+         bundle_e_sqlite3mc bundles (dropped in SQLitePCLRaw 3.0). Default cipher is
+         ChaCha20-Poly1305. Don't add a second SQLitePCLRaw bundle — they conflict. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="9.0.4" />
+    <PackageReference Include="SQLite3MC.PCLRaw.bundle" Version="2.3.5" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.4" />
     <PackageReference Include="Velopack" Version="1.2.0" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />

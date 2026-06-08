@@ -1,4 +1,5 @@
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NtfyDesktop.Core.Messaging;
@@ -161,6 +162,26 @@ public class AppSettings
         _ = new ServerDeleted(serverId, removedTopicIds).PublishAsync();
     }
 
+    /// <summary>
+    /// The SQLCipher passphrase for history.db, generating and persisting one on first use.
+    /// Stored DPAPI-wrapped (CurrentUser) in settings.json — the same protection class as the
+    /// access token — so the encrypted database is only readable on this user's Windows
+    /// session. The passphrase is 32 random bytes, Base64-encoded; SQLCipher derives the
+    /// actual key (PBKDF2). Returns it in plaintext for the connection string.
+    /// </summary>
+    public string GetOrCreateHistoryKey()
+    {
+        if (string.IsNullOrEmpty(EncryptedHistoryKey))
+        {
+            var passphrase = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            EncryptedHistoryKey = TokenProtector.Encrypt(passphrase);
+            Save();
+            return passphrase;
+        }
+
+        return TokenProtector.Decrypt(EncryptedHistoryKey);
+    }
+
     #region props
 
     public List<ServerConfig> Servers { get; set; } = new();
@@ -170,6 +191,11 @@ public class AppSettings
     // at runtime once Servers is populated. Kept so older settings.json deserialize.
     public string ServerUrl { get; set; } = "https://ntfy.sh";
     public string EncryptedAccessToken { get; set; } = string.Empty;
+
+    /// <summary>DPAPI-wrapped (CurrentUser) SQLCipher passphrase for history.db. Generated on
+    /// first use via <see cref="GetOrCreateHistoryKey"/>; empty until then. Losing it (or the
+    /// user's Windows profile) makes the encrypted history unrecoverable — same as the token.</summary>
+    public string EncryptedHistoryKey { get; set; } = string.Empty;
 
     public Priority GlobalMinPriority { get; set; } = Priority.Min;
     public int HistoryRetentionDays { get; set; } = 30;

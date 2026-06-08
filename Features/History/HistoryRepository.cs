@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.History.Events;
+using NtfyDesktop.Features.Settings;
 
 namespace NtfyDesktop.Features.History;
 
@@ -12,10 +13,16 @@ public class HistoryRepository
 {
     private readonly string _dbPath;
 
-    public HistoryRepository()
+    // SQLite3MC encryption passphrase (DPAPI-wrapped at rest in settings.json). Every
+    // connection is opened with it via the Password keyword, so history.db is encrypted on disk.
+    private readonly string _password;
+
+    public HistoryRepository(AppSettings settings)
     {
         Directory.CreateDirectory(App.DataPath);
         _dbPath = Path.Combine(App.DataPath, "history.db");
+        _password = settings.GetOrCreateHistoryKey();
+        MigrateToEncryptedIfNeeded();
         InitializeDatabase();
     }
 
@@ -465,9 +472,79 @@ public class HistoryRepository
 
     private SqliteConnection Open()
     {
-        var conn = new SqliteConnection($"Data Source={_dbPath}");
+        // SqliteConnectionStringBuilder (not string interpolation) so the path is escaped.
+        // Pooling stays on (default): the pool reuses the keyed sqlite3 handle, so the
+        // cipher's per-open PBKDF2 key derivation is paid once per physical connection, not
+        // on every Open() (the repo opens one per call).
+        var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _dbPath,
+        }.ToString());
         conn.Open();
+        ApplyKey(conn);
         return conn;
+    }
+
+    // Unlocks (and, on a brand-new file, encrypts) the connection with the history key.
+    //
+    // Deliberately NOT the `Password` connection-string keyword: with SQLite3MC's default
+    // cipher (ChaCha20-Poly1305), Microsoft.Data.Sqlite's Password handling doesn't
+    // round-trip — a DB written with it can't be reopened (verified empirically; reopen
+    // fails with "file is not a database"). A plain `PRAGMA key` does round-trip.
+    //
+    // It MUST be the first statement on the connection: any earlier query reads page 1, which
+    // fails before the key is set. Re-applying it on a pooled (already-keyed) handle is a
+    // harmless no-op, so calling it on every Open() with pooling on is safe.
+    private void ApplyKey(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA key = " + KeyLiteral(_password);
+        cmd.ExecuteNonQuery();
+    }
+
+    // The key as a SQLite string literal (PRAGMA can't bind parameters). Single quotes are
+    // doubled per SQL escaping; the key is Base64 so it contains none, but escaping keeps this
+    // safe if key generation ever changes. Can't use SQLite's quote() here because that needs
+    // a query, and PRAGMA key has to run before any query on an encrypted connection.
+    private static string KeyLiteral(string key) => "'" + key.Replace("'", "''") + "'";
+
+    /// <summary>
+    /// One-time migration of a pre-encryption (plaintext) history.db to an encrypted database,
+    /// keyed by <see cref="_password"/>. SQLite3MC's <c>PRAGMA rekey</c> encrypts the existing
+    /// file in place — every page is rewritten encrypted within a single transaction, so it's
+    /// atomic (an interruption leaves the file untouched, not half-encrypted). No-op once the
+    /// file is already encrypted or doesn't exist yet (a fresh install — the first keyed
+    /// <see cref="Open"/> creates it encrypted). Runs in the constructor before any keyed
+    /// connection is opened.
+    /// </summary>
+    private void MigrateToEncryptedIfNeeded()
+    {
+        // Fresh install: nothing to migrate; the first keyed Open creates the DB encrypted.
+        if (!File.Exists(_dbPath)) return;
+
+        // Probe with no key on a dedicated, non-pooled connection so the unkeyed handle is
+        // never returned to the pool and reused by a later keyed Open(). With encryption
+        // active, an already-encrypted file throws on the first read ("file is not a
+        // database"); a successful read means the file predates encryption and needs rekeying.
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _dbPath,
+            Pooling = false,
+        }.ToString());
+        conn.Open();
+
+        using (var probe = conn.CreateCommand())
+        {
+            probe.CommandText = "SELECT count(*) FROM sqlite_master";
+            try { probe.ExecuteScalar(); }
+            catch (SqliteException) { return; } // already encrypted — leave it
+        }
+
+        // Plaintext → encrypt in place. PRAGMA rekey rewrites every page encrypted under the
+        // history key, atomically (single transaction).
+        using var rekey = conn.CreateCommand();
+        rekey.CommandText = "PRAGMA rekey = " + KeyLiteral(_password);
+        rekey.ExecuteNonQuery();
     }
 
     private static HistoryMessage ReadRow(SqliteDataReader r)
