@@ -118,18 +118,6 @@ jobs:
             if (Test-Path vt-response.json) { Get-Content vt-response.json | Write-Host }
           }
 
-      # vpk creates the release with these notes (it doesn't auto-generate a
-      # changelog), so assemble a short body — install hint plus the VT link if scanned.
-      - name: Assemble release notes
-        shell: pwsh
-        run: |
-          $c = "${{ steps.version.outputs.channel }}"
-          $notes = "Install with **NtfyDesktop-$c-Setup.exe**, or grab **NtfyDesktop-$c-Portable.zip** for a no-install copy. Both update themselves automatically."
-          if ("${{ steps.vt.outputs.url }}" -ne "") {
-            $notes = "**VirusTotal scan:** ${{ steps.vt.outputs.url }}`r`n`r`n" + $notes
-          }
-          Set-Content -Path notes.md -Value $notes
-
       # Creates/publishes the GitHub Release for the pushed tag and uploads everything
       # in ./Releases — installer, portable zip, packages, and releases.{channel}.json.
       # The in-app updater reads releases.{channel}.json off the release to find updates.
@@ -143,15 +131,37 @@ jobs:
             '--token', '${{ secrets.GITHUB_TOKEN }}',
             '--channel', '${{ steps.version.outputs.channel }}',
             '--publish',
-            '--releaseName', 'ntfy Desktop ${{ steps.version.outputs.version }}',
+            '--releaseName', '${{ github.ref_name }}',
             '--tag', '${{ github.ref_name }}'
           )
           if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $vpkArgs += '--pre' }
           vpk @vpkArgs
 
-      # vpk upload github has no release-notes flag, so set the release body afterwards
-      # with gh (preinstalled on the runner). Keeps the VirusTotal link in the notes.
+      # vpk upload github has no release-notes flag and doesn't generate a changelog,
+      # so build the body ourselves and set it with gh (preinstalled on the runner):
+      # GitHub's auto-generated "What's Changed" (the same content the old
+      # softprops/action-gh-release generate_release_notes produced), plus our install
+      # hint and the VirusTotal link.
       - name: Set release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit ${{ github.ref_name }} --repo ${{ github.repository }} --notes-file notes.md
+        shell: pwsh
+        run: |
+          $c = "${{ steps.version.outputs.channel }}"
+
+          # "What's Changed" — PRs since the previous release (auto-detected). gh emits
+          # the body line-by-line, so rejoin into one string before composing.
+          $changelog = (gh api --method POST `
+            "repos/${{ github.repository }}/releases/generate-notes" `
+            -f tag_name=${{ github.ref_name }} --jq .body) -join "`n"
+
+          $install = "Install with **NtfyDesktop-$c-Setup.exe**, or grab **NtfyDesktop-$c-Portable.zip** for a no-install copy. Both update themselves automatically."
+
+          $parts = @()
+          if ("${{ steps.vt.outputs.url }}" -ne "") { $parts += "**VirusTotal scan:** ${{ steps.vt.outputs.url }}" }
+          $parts += $install
+          $parts += $changelog
+          $notes = $parts -join "`r`n`r`n"
+
+          Set-Content -Path notes.md -Value $notes
+          gh release edit ${{ github.ref_name }} --repo ${{ github.repository }} --notes-file notes.md
