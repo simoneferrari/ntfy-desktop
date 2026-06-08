@@ -1,6 +1,7 @@
 using System.IO;
 using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.Notifications;
+using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Updates.Events;
 using Velopack;
 using Velopack.Sources;
@@ -16,19 +17,23 @@ public enum UpdateCheckResult
 }
 
 // Thin wrapper over Velopack's UpdateManager, pointed at this repo's GitHub
-// Releases. The UpdateManager checks whichever channel this build was installed
-// from ("stable" or "dev") — we don't pin a channel, so a stable install only sees
-// stable releases and a dev install auto-updates through every dev build. That
-// channel separation is what walls the two apart; prerelease:true is required so a
-// dev install can see its releases (dev releases are published as GitHub
-// pre-releases, which also keeps `releases/latest` pointing at the last stable
-// build). Only functional in a Velopack-installed build: running from the IDE
-// reports IsSupported=false and every call no-ops, so dev runs never offer an update.
+// Releases. The manager is pinned to the user's *selected* channel ("stable" or
+// "dev") via ExplicitChannel — defaulting to the channel this build was installed
+// from, so a stable install sees stable and a dev install auto-updates through every
+// dev build. That channel separation is what walls the two apart. In-app channel
+// switching (SetChannelAsync) rebuilds the manager onto the other channel; switching
+// dev→stable is usually a *downgrade* (a dev build's version outranks the latest
+// stable), which AllowVersionDowngrade permits — we already apply explicitly, never
+// via auto-apply-on-startup (which won't apply a lower-or-equal version). prerelease:
+// true is required so the dev channel's releases (published as GitHub pre-releases)
+// are found, and it also keeps `releases/latest` on the last stable build. Only
+// functional in a Velopack-installed build: running from the IDE reports
+// IsSupported=false and every call no-ops, so dev runs never offer an update.
 //
-// On finding an update it both raises the in-app banner (UpdateAvailable event)
+// On finding an update it both raises the in-app banner (UpdateStatusChanged event)
 // and shows a Windows notification — the toast matters because this is largely a
 // tray app, so the user shouldn't have to open the window to learn about updates.
-public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
+public sealed class UpdateService(EventBus bus, ToastNotifier toasts, AppSettings settings)
 {
     private const string RepoUrl = "https://github.com/simoneferrari/ntfy-desktop";
 
@@ -41,7 +46,9 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
     private const string FeedArg = "--update-feed";
     private const string FeedEnvVar = "NTFY_UPDATE_FEED";
 
-    private readonly UpdateManager _manager = new(ResolveSource());
+    // Rebuilt by SetChannelAsync when the user switches channel (ExplicitChannel is
+    // fixed at construction), so it's not readonly.
+    private UpdateManager _manager = BuildManager(SelectedChannelFor(settings));
 
     // The update found by the last successful check, ready to download + apply.
     private UpdateInfo? _pending;
@@ -54,6 +61,25 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
     // update can actually be applied.
     public bool IsSupported => _manager.IsInstalled;
 
+    // ===== Channels =====
+
+    // The channel this running build belongs to (derived from its own version), i.e.
+    // what's actually installed right now.
+    public string InstalledChannel => UpdateChannels.ForVersion(AppVersion.Current);
+
+    // The channel the user wants future updates from. Defaults to the installed
+    // channel until they pick otherwise. While it differs from InstalledChannel a
+    // switch is pending — the next check finds the cross-channel build for the banner.
+    public string SelectedChannel => SelectedChannelFor(settings);
+
+    public bool IsChannelSwitchPending =>
+        !string.Equals(SelectedChannel, InstalledChannel, StringComparison.Ordinal);
+
+    private static string SelectedChannelFor(AppSettings s) =>
+        string.IsNullOrEmpty(s.UpdateChannel)
+            ? UpdateChannels.ForVersion(AppVersion.Current)
+            : s.UpdateChannel;
+
     // Whether a check has already found an update waiting. Lets a late-created
     // consumer (the main-window VM, built only when the window is first shown) pick
     // up an update the checker found before the window existed.
@@ -62,7 +88,7 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
     // Version of the pending update, for the banner / status text. Null until found.
     public string? PendingVersion => _pending?.TargetFullRelease.Version?.ToString();
 
-    // Checks GitHub for a newer stable release. On finding one it stashes it and
+    // Checks the selected channel for a newer release. On finding one it stashes it and
     // notifies (banner + toast). Network / parse failures return Failed rather than
     // throwing — a failed check must never disrupt the running app.
     public async Task<UpdateCheckResult> CheckAsync()
@@ -78,7 +104,13 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
             return UpdateCheckResult.Failed;
         }
 
-        if (_pending is null) return UpdateCheckResult.UpToDate;
+        if (_pending is null)
+        {
+            // Nothing staged — make sure the banner reflects that (it may have been
+            // showing a cross-channel build the user then reverted away from).
+            await bus.PublishAsync(new UpdateStatusChanged(false, ""), PublishMode.WaitForNone);
+            return UpdateCheckResult.UpToDate;
+        }
 
         await NotifyFoundAsync();
         return UpdateCheckResult.UpdateAvailable;
@@ -89,12 +121,30 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
         var version = PendingVersion ?? "";
 
         // Banner: always reflect the current pending update (idempotent).
-        await bus.PublishAsync(new UpdateAvailable(version), PublishMode.WaitForNone);
+        await bus.PublishAsync(new UpdateStatusChanged(true, version), PublishMode.WaitForNone);
 
         // Toast: once per distinct version, so repeated checks don't spam.
         if (version == _notifiedVersion) return;
         _notifiedVersion = version;
         toasts.ShowUpdateAvailable(version);
+    }
+
+    // Switches the channel the updater follows. Persists the choice, rebuilds the
+    // manager onto the new channel (ExplicitChannel is fixed at construction), clears
+    // any stash from the old channel, then re-checks so the banner/toast reflect the
+    // new channel — a cross-channel build (a downgrade for dev→stable) surfaces through
+    // the normal "Restart & update" flow. Reverting to InstalledChannel finds nothing
+    // and clears the banner. No-ops on a non-installed build (every call is inert).
+    public async Task SetChannelAsync(string channel)
+    {
+        settings.UpdateChannel = channel;
+        settings.Save();
+
+        _manager = BuildManager(channel);
+        _pending = null;
+        _notifiedVersion = null;
+
+        await CheckAsync();
     }
 
     // Downloads the pending update and restarts into it. The process exits inside
@@ -107,6 +157,17 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts)
         await _manager.DownloadUpdatesAsync(_pending);
         _manager.ApplyUpdatesAndRestart(_pending.TargetFullRelease);
     }
+
+    // Builds an UpdateManager pinned to the given channel. AllowVersionDowngrade lets a
+    // dev→stable switch apply a lower version (a dev build outranks the latest stable);
+    // it's harmless for normal forward updates and for same-channel installs (where this
+    // matches Velopack's own default channel anyway).
+    private static UpdateManager BuildManager(string channel) =>
+        new(ResolveSource(), new UpdateOptions
+        {
+            ExplicitChannel = channel,
+            AllowVersionDowngrade = true,
+        });
 
     // GitHub releases by default; a local folder when the dev/test feed override is set.
     private static IUpdateSource ResolveSource()

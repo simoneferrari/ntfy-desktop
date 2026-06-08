@@ -91,7 +91,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 **0.7 — Polish**
 - [ ] Username/password authentication (in addition to access tokens)
 - [ ] Markdown subset rendering in message bodies (bold, italic, links, code)
-- [x] Automatic updates — Velopack-based self-updating installer and portable build, fed by GitHub Releases, with an in-app banner/notification, a manual check, and `stable` / `dev` channels *(shipped early in v0.6.4)*
+- [x] Automatic updates — Velopack-based self-updating installer and portable build, fed by GitHub Releases, with an in-app banner/notification, a manual check, `stable` / `dev` channels, and in-app channel switching *(shipped early, v0.6.4–0.6.5)*
 - [ ] Encrypt `history.db` at rest
 
 **Later**
@@ -120,7 +120,7 @@ Two options on the [latest release](../../releases/latest) page, both of which k
 
 **Updates are automatic.** The app checks GitHub Releases on startup and once a day; when a newer version is available it shows a banner with a **Restart & update** button that downloads the update and relaunches. You never need to re-download. (You can turn the automatic check off, or check manually, in **Settings → Updates**.)
 
-> **Want the latest features early?** Pre-release **dev** builds (`NtfyDesktop-dev-Setup.exe`) are published to the [releases](../../releases) page as features land. They're rougher and may be buggy, but they self-update through every dev build just like the stable channel. Install the dev build to opt in; reinstall the stable build to go back.
+> **Want the latest features early?** Pre-release **dev** builds (`NtfyDesktop-dev-Setup.exe`) are published to the [releases](../../releases) page as features land. They're rougher and may be buggy, but they self-update through every dev build just like the stable channel. Switch between the stable and dev channels in **Settings → Updates** (the app then moves you to the other channel on its next update) — or install the matching Setup directly.
 
 ### First run: Windows SmartScreen
 

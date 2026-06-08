@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using NtfyDesktop.Features.Settings.Dialogs;
+using NtfyDesktop.Features.Updates;
 using Button = Wpf.Ui.Controls.Button;
 using MessageBox = System.Windows.MessageBox;
 
@@ -33,6 +34,54 @@ public partial class SettingsPage : Page
     }
 
     private void OnDiscardClicked(object sender, RoutedEventArgs e) => _vm.Load();
+
+    // ===== Update channel (immediate action via confirm dialog) =====
+
+    private async void OnSwitchChannelClicked(object sender, RoutedEventArgs e)
+    {
+        var target = _vm.TargetChannel;
+
+        // Opting into dev warns about stability; going to stable warns it may move you
+        // to an earlier (downgrade) build, since the latest stable can trail the dev build.
+        var content = target == UpdateChannels.Dev
+            ? "Dev builds get new features early but can be less stable. You'll get the latest " +
+              "dev build the next time you update.\n\nSwitch to the dev channel?"
+            : "The stable channel may be an earlier version than your current dev build, so the " +
+              "next update can move you to an older but more stable release.\n\nSwitch to the stable channel?";
+
+        var dialog = new Wpf.Ui.Controls.MessageBox
+        {
+            Title = $"Switch to {target} channel",
+            Content = content,
+            PrimaryButtonText = $"Switch to {target}",
+            CloseButtonText = "Cancel",
+        };
+
+        if (await dialog.ShowDialogAsync() != Wpf.Ui.Controls.MessageBoxResult.Primary) return;
+
+        try
+        {
+            await _vm.SetChannelAsync(target);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Unexpected error: " + ex.Message);
+        }
+    }
+
+    // Cancel a pending switch — repoint back to the channel actually installed. No
+    // confirm needed: it just stops the staged switch.
+    private async void OnRevertChannelClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _vm.SetChannelAsync(_vm.InstalledChannel);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Unexpected error: " + ex.Message);
+        }
+    }
 
     // ===== Server management (immediate-persist via dialog) =====
 

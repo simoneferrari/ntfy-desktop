@@ -71,10 +71,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         bus.Subscribe<ConnectionStatusChanged>(this, _ => Refresh(), ThreadOption.UIThread);
         bus.Subscribe<NotificationsStatusChanged>(this, _ => Refresh(), ThreadOption.UIThread);
 
-        bus.Subscribe<UpdateAvailable>(this, e =>
+        bus.Subscribe<UpdateStatusChanged>(this, e =>
         {
             UpdateVersion = e.Version;
-            IsUpdateAvailable = true;
+            IsUpdateAvailable = e.Available;
         }, ThreadOption.UIThread);
 
         // The window (and this VM) is created lazily on first show, which may be
