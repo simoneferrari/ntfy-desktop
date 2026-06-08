@@ -13,6 +13,8 @@ Entry point for Claude sessions in this repo. Read the two docs below first, the
 - **Fall back when context7 can't help.** It only covers packages, and it sometimes errors or lacks coverage. For anything it doesn't serve — non-package APIs like the **ntfy HTTP/WebSocket protocol**, or when a context7 call fails — use **web search** (and read primary sources/source code as needed). Do **not** guess or rely on assumptions when a fallback is available.
 
 ## Workflow
+- **Trunk-based: a single long-lived branch, `master`.** (An earlier `dev`/`master` two-branch model was retired in 0.6.6 — see `.claude/HANDOFF.md`.)
 - Code changes go through a `feature/<name>` branch + PR → `master` (GitHub Flow; details in `.claude/HANDOFF.md`).
-- Doc-only / version-bump changes may be committed directly to `master`.
+- Doc-only / version-bump / CI changes may be committed directly to `master`.
+- **Releases are tag-driven** (both channels cut from `master`): tag `vX.Y.Z-dev.N` for a dev-channel pre-release, or `vX.Y.Z` for a stable release — the `-` suffix is what picks the channel. Hotfix a shipped stable by branching off its tag. Full recipe in `.claude/HANDOFF.md`.
 - Commit or push only when asked.
