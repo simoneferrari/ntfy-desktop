@@ -11,7 +11,7 @@
 | Tray | H.NotifyIcon.Wpf 2.4.1 |
 | Persistence | Microsoft.Data.Sqlite.Core + SQLite3MC (encrypted history) + System.Text.Json (settings) |
 | Security | DPAPI (`ProtectedData`, `CurrentUser`) for access token + history-DB key at rest |
-| Messaging | In-process event bus (`Core/Messaging`: `IEvent` + `EventBus`, CommunityToolkit `WeakReferenceMessenger` under the hood). UI subscribers marshal via `ThreadOption.UIThread`. See `docs/events.md`. |
+| Messaging | In-process event bus (`Core/Messaging`: `IEvent` + `EventBus`, CommunityToolkit `WeakReferenceMessenger` under the hood). UI subscribers marshal via `ThreadOption.UIThread`. See [Messaging (event bus)](#messaging-event-bus). |
 
 ## Layout
 
@@ -73,7 +73,7 @@ These are intentionally independent axes. Key invariants:
 
 ### Topics
 
-`TopicManager` coordinates topic lifecycle — `AddOrUpdate`, `Remove(topic, deleteHistory)`, `ToggleEnabled` — persisting to `AppSettings` and publishing `TopicAdded` / `TopicUpdated` / `TopicDeleted` on the event bus (the connection side reacts to those; see `docs/events.md`). Topic CRUD is surfaced in the nav rail (not on a dedicated settings page). Removal prompts the user to keep the topic's history (still browsable under "All topics") or delete it, mirroring server removal. `TopicSettings.GroupName` (nullable) assigns a topic to a rail folder, set via an editable combo in the topic editor.
+`TopicManager` coordinates topic lifecycle — `AddOrUpdate`, `Remove(topic, deleteHistory)`, `ToggleEnabled` — persisting to `AppSettings` and publishing `TopicAdded` / `TopicUpdated` / `TopicDeleted` on the event bus (the connection side reacts to those; see [Messaging](#messaging-event-bus)). Topic CRUD is surfaced in the nav rail (not on a dedicated settings page). Removal prompts the user to keep the topic's history (still browsable under "All topics") or delete it, mirroring server removal. `TopicSettings.GroupName` (nullable) assigns a topic to a rail folder, set via an editable combo in the topic editor.
 
 Ordering is manual and lives in `TopicArrangement`: the `AppSettings.Topics` list order is the source of truth for topic order *within a section* (a group, or the ungrouped set), and `AppSettings.GroupOrder` for the folder order. A one-time `Migrate()` seed (gated by `OrderInitialized`) sorts both alphabetically so the first launch matches the old alphabetical rail. `TopicArrangement` exposes `MoveTopicWithinGroup`/`MoveTopicToGroup`/`MoveGroup` (+ `Can…` guards), drag-drop placement (`MoveTopicRelativeTo` / `MoveGroupRelativeTo`), and `SyncGroupOrder` (reconciles `GroupOrder` with groups actually in use). Reorders persist and publish `TopicMoved` / `GroupMoved`; the rail applies them by repositioning the single affected item/folder in place (no full rebuild). Surfaced two ways: right-click menus (topic: Move up/down, Move to group; folder: Move up/down) and in-rail drag-and-drop — each rail item is both a drag source (threshold-gated `DoDragDrop` so clicks still select) and a drop target, with the payload being the topic id (`Guid`) or group name (`string`). Indicators are adorners — an insertion line for reordering, a highlight for "drop into group" / dropping onto "All topics" to ungroup. Folder before/after is decided by `GroupOrder` position, not cursor pixels (an expanded folder's height includes its children).
 
@@ -129,14 +129,33 @@ FastEndpoints and the older per-class CLR events.
   `Dispatcher.Invoke`). Recipients are weakly referenced.
 - **Service consumers** (e.g. `ConnectionManager` reacting to topic lifecycle)
   are DI-resolved `IEventHandler<TEvent>` classes on the publisher thread.
-- Three tiers: **structural** (topic/server lifecycle, ordering) → targeted
-  single-item UI updates, with a rail rebuild reserved for rare/cross-container
-  changes; **status/count** (connection, pause, unread) → O(1) targeted updates,
-  never a rebuild; **aggregate** (`ConnectionStatusChanged`,
-  `NotificationsStatusChanged`) → coarse signal + a cheap re-read.
+- Three tiers, each with its own update strategy:
+  - **Structural / display** (low-frequency, user-initiated) → targeted
+    single-item UI mutations, **never a full rebuild** (a rebuild discards rail
+    selection, folder expansion, scroll, and re-creates badge adorners). A rail
+    rebuild is reserved for the rare cross-container case (`ServerDisplayChanged`,
+    `ServerDeleted`) and first-load init.
+  - **Status / count** (high-frequency, socket-driven) → O(1) targeted updates,
+    never a rebuild, never a full `GetTopicStates()`.
+  - **Aggregate** (app-wide: `ConnectionStatusChanged`,
+    `NotificationsStatusChanged`) → coarse parameterless signal + a cheap re-read.
 
-The full catalog — every event, its publisher, and how each surface reacts — is
-in [`docs/events.md`](docs/events.md).
+### Event index
+
+Publisher → event. Consumer reactions follow the tier rules above; the handlers
+themselves are the source of truth (rail/`MainWindow`, `FeedViewModel`,
+`ConnectionsViewModel`, `MainWindowViewModel`, `TrayIconHost`, and the
+DI-resolved `ConnectionManager`).
+
+| Publisher | Events |
+|---|---|
+| `TopicManager` | `TopicAdded(TopicSettings)`, `TopicUpdated(TopicSettings)`, `TopicDeleted(Guid)` |
+| `TopicArrangement` | `TopicMoved(Guid)`, `GroupMoved(string)` |
+| `ConnectionManager` | `ConnectionStatusChanged()` (aggregate), `TopicConnectionStatusChanged(Guid, TopicConnectionStatus, string?)` |
+| `NotificationGate` | `NotificationsStatusChanged()` (global), `TopicNotificationsStatusChanged(Guid, bool)` |
+| `HistoryRepository` | `MessageInserted(HistoryMessage)`, `MessagesDeleted(Guid?, MessageDeletionSource)` — `Source ∈ {Feed, Removal, Retention}` lets a consumer ignore deletes it originated |
+| `AppSettings` / server logic | `ServerDisplayChanged()` (rename / `ShowServerLabel` toggle), `ServerDeleted(Guid, IReadOnlyList<Guid>)` (carries cascade-removed topic ids; no per-topic `TopicDeleted`) |
+| `UnreadTracker` | `UnreadCountChanged(Guid?)` |
 
 > **Gotcha:** `PublishAsync` infers the bus envelope from the **static** type, so
 > publishing through a base-typed `IEvent` variable yields `EventEnvelope<IEvent>`

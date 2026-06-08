@@ -40,7 +40,7 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts, AppSetting
 
     // Dev/test hook: point the updater at a local `vpk pack` output folder instead
     // of GitHub, so the full check → download → apply → restart flow can be exercised
-    // offline (see .claude/ROADMAP-NOTES.md). Set via the --update-feed <dir> launch
+    // offline. Set via the --update-feed <dir> launch
     // arg or the NTFY_UPDATE_FEED env var. Guarded: inert unless one is explicitly set
     // to an existing directory, so production always uses GitHub. Intentionally works
     // in Release builds too — the local loop needs an installed (Release) build.

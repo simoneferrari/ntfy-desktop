@@ -1,12 +1,16 @@
 # Issues & backlog
 
-Known bugs and small deferred items not yet worth a roadmap entry.
+Bugs, small deferred items, and design notes for planned-but-unshipped work. The
+**public roadmap** (what + status) lives in [README.md](README.md); this file is the
+internal "how/why" behind the unshipped items, plus the bug tracker.
 
 **Lifecycle:** open items live under **Open** (newest first); when a fix is in flight,
 add a `Status:` line naming the branch rather than removing the item. Once a fix is
 **confirmed and merged**, move the item to **Resolved** with a one-line resolution and a
 reference (branch/PR, plus the version once it's tagged). Resolved entries double as
-release-note material.
+release-note material. Design notes under **Planned** move out (to Resolved, or just
+deleted once their rationale has landed in [ARCHITECTURE.md](ARCHITECTURE.md)) as the
+work ships.
 
 ## Open
 
@@ -17,6 +21,39 @@ _None currently._
 ### Small items
 
 _None currently._
+
+## Planned — design notes
+
+Internal notes behind unshipped [README.md](README.md) roadmap items: caveats and
+"stuff to remember when we get there," so we don't re-litigate them. Rationale for
+*shipped* features lives in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### Username/password authentication (0.7)
+
+- ntfy supports HTTP Basic auth (username + password) as an alternative to access tokens. Add it alongside the existing per-server token (`ServerConfig`): a server uses either a token or a username/password pair.
+- Cleanest path is a standard `Authorization: Basic <base64(user:pass)>` header — over https only, same cleartext refusal as the token. (ntfy also accepts Basic credentials as a base64 bearer-style value, but Basic is simpler.)
+- UI: extend the server editor (`ServerEditorViewModel`/dialog) with an auth-method choice; store the password DPAPI-encrypted like the token.
+
+### Markdown rendering (subset, 0.7)
+
+- Scope: **bold, italic, inline code, fenced code, links, line breaks.** Skip tables, headings, lists, blockquotes — the long tail of CommonMark.
+- Don't pull in a full CommonMark library; a small hand-written tokenizer is enough and keeps the dependency footprint tiny.
+- Render only when `Content-Type: text/markdown` (ntfy sets this when the `Markdown: yes` header is used). Otherwise plain text — don't auto-detect markdown in plain bodies, that breaks things like `_underscored_filenames_`.
+
+### Socket multiplexing (per server)
+
+- Today `ConnectionManager` opens **one WebSocket per topic**; the official web client multiplexes all of a server's topics onto one socket (`wss://server/topic1,topic2/ws`).
+- **Why it matters (real diagnosis):** a user hit "200 when 101 expected" on a couple of topics after restarting/killing the app repeatedly — orphaned per-topic sockets pushed them over the server's per-visitor subscription/connection limit, while the web client's single socket stayed under it.
+- Fix: group enabled topics by `ServerId`, open one `TopicConnection` per server subscribing to the comma-joined topic list, and route received messages back to the right topic by name. Touches `ConnectionManager` (keying) + `TopicConnection` (URL build, message→topic resolution).
+- Non-trivial: the per-topic pip/pause/reconnect UI must still work per topic over a shared socket. Also interacts with catch-up — `since` becomes per-topic-within-one-socket (ntfy's comma-topic URL supports it, but it complicates the cursor).
+
+### Windows Focus Assist integration
+
+- `Windows.UI.Notifications.Management.UserNotificationListener` — needs a user permission grant.
+
+### `ntfy://` URL scheme handler
+
+- Register `HKCU\Software\Classes\ntfy` per-user; the handler should open the app and trigger Add Topic with the URL prefilled.
 
 ## Resolved
 
