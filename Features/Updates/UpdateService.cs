@@ -24,11 +24,12 @@ public enum UpdateCheckResult
 // switching (SetChannelAsync) rebuilds the manager onto the other channel; switching
 // dev→stable is usually a *downgrade* (a dev build's version outranks the latest
 // stable), which AllowVersionDowngrade permits — we already apply explicitly, never
-// via auto-apply-on-startup (which won't apply a lower-or-equal version). prerelease:
-// true is required so the dev channel's releases (published as GitHub pre-releases)
-// are found, and it also keeps `releases/latest` on the last stable build. Only
-// functional in a Velopack-installed build: running from the IDE reports
-// IsSupported=false and every call no-ops, so dev runs never offer an update.
+// via auto-apply-on-startup (which won't apply a lower-or-equal version). The GitHub
+// source's `prerelease` flag is set per channel (see ResolveSource): dev needs it (dev
+// builds are GitHub pre-releases), stable doesn't. Only functional in a Velopack-
+// installed build: running from the IDE reports IsSupported=false and every call
+// no-ops, so dev runs never offer an update. The check is retried over transient
+// network blips (Velopack does no internal retry) so a hiccup doesn't read as failure.
 //
 // On finding an update it both raises the in-app banner (UpdateStatusChanged event)
 // and shows a Windows notification — the toast matters because this is largely a
@@ -97,7 +98,7 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts, AppSetting
 
         try
         {
-            _pending = await _manager.CheckForUpdatesAsync();
+            _pending = await CheckForUpdatesWithRetryAsync();
         }
         catch
         {
@@ -114,6 +115,28 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts, AppSetting
 
         await NotifyFoundAsync();
         return UpdateCheckResult.UpdateAvailable;
+    }
+
+    // Velopack's check is a single GitHub API call with no internal retry, so an occasional
+    // network blip would otherwise surface straight to the user as "couldn't check for
+    // updates." Retry a few times with a short backoff to ride over transient failures; the
+    // final attempt's exception propagates, so a genuine sustained failure still reports
+    // Failed. A successful check (including a legitimate "up to date") returns immediately —
+    // we never retry a non-exception result, so the common case stays fast.
+    private async Task<UpdateInfo?> CheckForUpdatesWithRetryAsync()
+    {
+        const int attempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await _manager.CheckForUpdatesAsync();
+            }
+            catch when (attempt < attempts)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2 * attempt)); // 2s, then 4s
+            }
+        }
     }
 
     private async Task NotifyFoundAsync()
@@ -163,19 +186,24 @@ public sealed class UpdateService(EventBus bus, ToastNotifier toasts, AppSetting
     // it's harmless for normal forward updates and for same-channel installs (where this
     // matches Velopack's own default channel anyway).
     private static UpdateManager BuildManager(string channel) =>
-        new(ResolveSource(), new UpdateOptions
+        new(ResolveSource(channel), new UpdateOptions
         {
             ExplicitChannel = channel,
             AllowVersionDowngrade = true,
         });
 
     // GitHub releases by default; a local folder when the dev/test feed override is set.
-    private static IUpdateSource ResolveSource()
+    // `prerelease` is set per channel: dev builds are published as GitHub pre-releases, so a
+    // dev install must include them; a stable install excludes them (cleaner, and it avoids
+    // scanning dev pre-releases for a stable manifest as they accumulate). ExplicitChannel
+    // still selects which releases.{channel}.json is read — `prerelease` only widens or
+    // narrows the set of candidate releases that file is looked for on.
+    private static IUpdateSource ResolveSource(string channel)
     {
         var feed = LocalFeedPath();
-        return feed is not null
-            ? new SimpleFileSource(new DirectoryInfo(feed))
-            : new GithubSource(RepoUrl, accessToken: null, prerelease: true);
+        if (feed is not null) return new SimpleFileSource(new DirectoryInfo(feed));
+
+        return new GithubSource(RepoUrl, accessToken: null, prerelease: channel == UpdateChannels.Dev);
     }
 
     // The override directory from --update-feed or NTFY_UPDATE_FEED, or null when
