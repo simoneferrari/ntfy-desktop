@@ -50,6 +50,11 @@ public class ShowToastNotification(
     {
         var message = eventModel.Message;
 
+        // The rule engine suppressed this message: no toast, and don't count it in the
+        // catch-up summary either. It's still in history (hidden from the feed by default).
+        if (eventModel.Suppressed)
+            return Task.CompletedTask;
+
         // Same gate for live and backfilled messages: pause, below-min-priority and
         // outside-active-hours all mean "don't notify". A gated message is neither
         // toasted nor counted in the catch-up summary.

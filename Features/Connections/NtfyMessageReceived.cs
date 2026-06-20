@@ -11,4 +11,4 @@ namespace NtfyDesktop.Features.Connections;
 // catch-up subscription) rather than published live while we were connected.
 // History/feed/unread still process it; toast delivery is suppressed so a
 // reconnect doesn't re-toast messages the user already missed-and-moved-on-from.
-public record NtfyMessageReceived(NtfyMessage Message, Guid TopicId, bool IsBackfill = false) : IEvent;
+public record NtfyMessageReceived(NtfyMessage Message, Guid TopicId, bool IsBackfill = false, bool Suppressed = false) : IEvent;
