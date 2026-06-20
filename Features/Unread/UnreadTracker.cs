@@ -122,6 +122,10 @@ public sealed class UnreadTracker
 
     private void OnMessageInserted(HistoryMessage m)
     {
+        // Suppressed messages don't nag: they're excluded from the unread count
+        // (GetUnreadCounts also filters them, so the seeded cache agrees).
+        if (m.Suppressed) return;
+
         bool viewing;
         lock (_lock)
         {
