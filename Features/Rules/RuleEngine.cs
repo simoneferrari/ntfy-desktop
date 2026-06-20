@@ -24,6 +24,8 @@ public sealed class RuleEngine(
 
         var suppress = false;
         var tags = new List<string>();
+        IncidentOpen? openIncident = null;
+        (string RuleId, string Key)? closeIncident = null;
 
         foreach (var pack in packsProvider())
         {
@@ -39,9 +41,41 @@ public sealed class RuleEngine(
                     // Fail open: a malformed regex / rule never drops a message.
                 }
             }
+
+            foreach (var rule in pack.CorrelateRules)
+            {
+                try
+                {
+                    if (rule.Open.Matches(message))
+                    {
+                        var key = rule.Key.Extract(message);
+                        if (key is not null)
+                            openIncident = new IncidentOpen(rule.Id, key, message.Id, message.Time);
+                    }
+                    else if (rule.Close.Matches(message))
+                    {
+                        var key = rule.Key.Extract(message);
+                        if (key is not null && incidents.FindOpen(rule.Id, key) is not null)
+                        {
+                            ApplyActions(rule.OnClose, ref suppress, tags);
+                            closeIncident = (rule.Id, key);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fail open: a malformed regex / rule never drops a message.
+                }
+            }
         }
 
-        return new RuleVerdict { Suppress = suppress, Tags = tags };
+        return new RuleVerdict
+        {
+            Suppress = suppress,
+            Tags = tags,
+            OpenIncident = openIncident,
+            CloseIncident = closeIncident,
+        };
     }
 
     private static void ApplyActions(IReadOnlyList<RuleAction> actions, ref bool suppress, List<string> tags)
