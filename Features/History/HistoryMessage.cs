@@ -30,6 +30,10 @@ public partial class HistoryMessage : ObservableObject
 
     public string? Click { get; set; }
 
+    /// <summary>True when the rule engine suppressed this message — hidden from the
+    /// feed by default and excluded from the unread count.</summary>
+    public bool Suppressed { get; set; }
+
     /// <summary>True when Click is a non-empty http(s) URL the app will follow.</summary>
     public bool HasClick => SafeUrl.IsAllowed(Click);
 

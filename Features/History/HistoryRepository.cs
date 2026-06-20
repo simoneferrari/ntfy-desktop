@@ -69,6 +69,11 @@ public class HistoryRepository
         // Markdown enabled). Drives subset markdown rendering in the feed; null = plain text.
         EnsureColumn(conn, "content_type");
 
+        // Rule-engine verdict: 1 when the engine suppressed this message (no toast,
+        // hidden from the feed by default, excluded from the unread count). Added via
+        // the same EnsureColumn migration as the other forward-compatible columns.
+        EnsureColumn(conn, "suppressed", "INTEGER NOT NULL DEFAULT 0");
+
         // Unread tracking (0 = unread, 1 = read). When the column is added to an
         // existing database, mark all pre-existing rows read so the user doesn't
         // get flooded with unread badges for messages they've already seen — only
@@ -168,7 +173,7 @@ public class HistoryRepository
     /// <summary>Stores a received message and advances the topic's catch-up cursor.
     /// Returns <c>true</c> only when the row was genuinely new (a <c>since=</c> catch-up
     /// re-delivers already-stored messages — callers use this to skip re-notifying).</summary>
-    public bool Insert(NtfyMessage message, Guid topicId, Guid serverId)
+    public bool Insert(NtfyMessage message, Guid topicId, Guid serverId, bool suppressed = false)
     {
         using var conn = Open();
 
@@ -187,9 +192,9 @@ public class HistoryRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO messages
-                (message_id, topic, topic_id, server_id, timestamp, priority, title, body, tags, click, attachment, actions, content_type)
+                (message_id, topic, topic_id, server_id, timestamp, priority, title, body, tags, click, attachment, actions, content_type, suppressed)
             VALUES
-                (@mid, @topic, @topicId, @serverId, @ts, @priority, @title, @body, @tags, @click, @attachment, @actions, @contentType)
+                (@mid, @topic, @topicId, @serverId, @ts, @priority, @title, @body, @tags, @click, @attachment, @actions, @contentType, @suppressed)
             """;
         cmd.Parameters.AddWithValue("@mid", message.Id);
         cmd.Parameters.AddWithValue("@topic", message.Topic);
@@ -205,6 +210,7 @@ public class HistoryRepository
         cmd.Parameters.AddWithValue("@attachment", (object?)SerializeAttachment(message.Attachment) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@actions", (object?)SerializeActions(message.Actions) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@contentType", (object?)message.ContentType ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@suppressed", suppressed ? 1 : 0);
         var inserted = cmd.ExecuteNonQuery() > 0; // INSERT OR IGNORE → 0 when message_id already stored
 
         // Advance the topic's catch-up cursor (forward only). Runs even when the row was
@@ -217,7 +223,7 @@ public class HistoryRepository
         // feed and unread count (neither dedupes on message id) would double-count them.
         if (!inserted) return false;
 
-        var histMsg = ToHistoryMessage(message, topicId);
+        var histMsg = ToHistoryMessage(message, topicId, suppressed);
         _ = new MessageInserted(histMsg).PublishAsync();
 
         // Retention sweeps run on a timer in HistoryRetentionService, not per-Insert.
@@ -326,7 +332,8 @@ public class HistoryRepository
         Priority? minPriority = null,
         DateTimeOffset? from = null,
         DateTimeOffset? to = null,
-        int limit = 500)
+        int limit = 500,
+        bool includeSuppressed = false)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
@@ -336,6 +343,7 @@ public class HistoryRepository
         if (minPriority != null) { conditions.Add("priority >= @minP"); cmd.Parameters.AddWithValue("@minP", (int)minPriority.Value); }
         if (from != null) { conditions.Add("timestamp >= @from"); cmd.Parameters.AddWithValue("@from", from.Value.ToUnixTimeSeconds()); }
         if (to != null) { conditions.Add("timestamp <= @to"); cmd.Parameters.AddWithValue("@to", to.Value.ToUnixTimeSeconds()); }
+        if (!includeSuppressed) conditions.Add("suppressed = 0");
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
         cmd.CommandText = $"SELECT * FROM messages {where} ORDER BY timestamp DESC LIMIT {limit}";
@@ -372,7 +380,7 @@ public class HistoryRepository
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT topic_id, COUNT(*) FROM messages WHERE read = 0 GROUP BY topic_id";
+        cmd.CommandText = "SELECT topic_id, COUNT(*) FROM messages WHERE read = 0 AND suppressed = 0 GROUP BY topic_id";
 
         var counts = new Dictionary<Guid, int>();
         using var reader = cmd.ExecuteReader();
@@ -572,10 +580,11 @@ public class HistoryRepository
             Attachment = DeserializeAttachment(NullStr("attachment")),
             Actions = DeserializeActions(NullStr("actions")),
             ContentType = NullStr("content_type"),
+            Suppressed = !r.IsDBNull(Col("suppressed")) && r.GetInt64(Col("suppressed")) != 0,
         };
     }
 
-    private static HistoryMessage ToHistoryMessage(NtfyMessage m, Guid topicId) => new()
+    private static HistoryMessage ToHistoryMessage(NtfyMessage m, Guid topicId, bool suppressed) => new()
     {
         MessageId = m.Id,
         Topic = m.Topic,
@@ -589,6 +598,7 @@ public class HistoryRepository
         Attachment = m.Attachment,
         Actions = m.Actions,
         ContentType = m.ContentType,
+        Suppressed = suppressed,
     };
 
     private static string? SerializeAttachment(NtfyAttachment? attachment) =>
