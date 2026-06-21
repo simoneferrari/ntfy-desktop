@@ -116,8 +116,14 @@ Three rule types:
   unit-testable.
 - **`IncidentStore`** (new SQLite table). An `open`-match records an open
   incident keyed by the extracted key; a `close`-match with the same key resolves
-  it and drives the suppress/dismiss verdict. **Phase 1 only pairs and
-  suppresses** — the table is intentionally the foundation for the later
+  it. **Correlation folds resolved incidents out of the feed, it does not silence
+  them** (revised after Phase 1a testing — see Decisions): a problem and its
+  resolution *both toast live* (both are things the user wants to know), but once
+  paired, **both messages are hidden from the default feed** — the resolved row is
+  stored hidden, and the original problem row is retroactively hidden via a
+  `MessageSuppressed` signal. The feed is therefore a list of *open / unresolved*
+  problems plus non-correlated messages; a still-open problem stays visible because
+  no resolution arrived to fold it away. The table is the foundation for the later
   "open incidents" view.
 - **`ExpectationMonitor`** (`BackgroundService`). Persists per-`expect`-rule
   last-seen timestamps in SQLite. A timer detects overdue expectations
@@ -163,7 +169,13 @@ suppressed/digested rows and the digest can collect its members.
   not just the toasts.
 - **Suppressed messages do not bump the unread badge.** `UnreadTracker` ignores
   suppressed rows — otherwise toast noise would be reduced but a red count would
-  still nag.
+  still nag. When a message is retroactively hidden (a problem folded by its
+  resolution), `UnreadTracker` re-seeds so the now-hidden row drops out of the count.
+- **Toast-suppression and feed-hiding are separate axes.** A `match` `suppressToast`
+  rule hides from the feed *and* drops the toast (the backup-success case: pure
+  noise). A correlated *resolution* does the opposite on the toast axis — it is
+  *shown* live but *hidden* from the feed. The engine's verdict carries the two as
+  distinct flags (`SuppressToast`, `HideFromFeed`).
 - **Digest model:** the individual folded messages behave like suppressed ones
   (hidden by default, revealed by the toggle). The **periodic summary itself**
   (e.g. "overnight: 6 backups OK") surfaces as a **normal message in the feed**,
@@ -205,7 +217,17 @@ so it is built test-first:
 - **AI runtime:** bring-your-own OpenAI-compatible endpoint — defers the
   privacy/cost choice to the user and works with Anthropic-compat, OpenAI, Ollama,
   or a self-hosted model.
-- **Correlation scope:** noise-reduction (pairing + suppression) now; stateful
+- **Correlation behaviour — revised after Phase 1a testing.** The original design
+  *suppressed the resolved toast*. In practice that's backwards: the maintainer
+  wants to be told both when a problem opens **and** when it closes (the resolution
+  is the "all good" signal, not noise). So correlation now **shows both toasts** and
+  folds only at the **feed** level — once a resolution pairs with its problem, *both*
+  the problem and the resolution are hidden from the default feed, leaving the feed
+  as a list of still-open problems. A problem with no resolution stays visible (the
+  actionable case). This also realises the deferred `dismissOriginal` idea (the
+  problem row is retroactively hidden) and requires splitting the verdict's single
+  "suppress" into `SuppressToast` vs `HideFromFeed`.
+- **Correlation scope:** noise-reduction (pairing + feed-folding) now; stateful
   "open incidents" view deferred. The `IncidentStore` table is the foundation for
   it.
 - **Tool knowledge is data, not code:** declarative shareable packs, not loadable
