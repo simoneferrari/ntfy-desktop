@@ -252,6 +252,112 @@
                     </Grid>
                 </Border>
 
+                <!-- ======================= NOTIFICATION RULES ======================= -->
+                <ui:TextBlock Style="{StaticResource SectionTitle}" Text="Notification rules" />
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Enable rule engine" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Master switch for noise suppression, problem/resolved folding, and heartbeat alerts. When off, every message passes through unchanged." />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1"
+                                         VerticalAlignment="Center"
+                                         IsChecked="{Binding RulesEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="AI provider" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Used to draft rule packs from sample messages. Pick a preset or Custom; presets live in an editable providers.json in the app data folder." />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" Width="260" VerticalAlignment="Center"
+                                  ItemsSource="{Binding AiProviders}"
+                                  SelectedItem="{Binding AiProviderName, Mode=TwoWay}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Endpoint base URL" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="OpenAI-compatible base URL (e.g. https://api.openai.com/v1)." />
+                        </StackPanel>
+                        <ui:TextBox Grid.Column="1" Width="260" VerticalAlignment="Center"
+                                    Text="{Binding AiBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="API key" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Stored encrypted on this machine (DPAPI), like the access token. Sent only to the endpoint above." />
+                        </StackPanel>
+                        <PasswordBox x:Name="AiKeyBox" Grid.Column="1" Width="260" VerticalAlignment="Center"
+                                     PasswordChanged="OnAiKeyChanged" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Model" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Fetched live from the provider — click Refresh after entering your key. You can also type a model id." />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ComboBox Width="200" IsEditable="True"
+                                      ItemsSource="{Binding AiModels}"
+                                      Text="{Binding AiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ui:Button Appearance="Secondary"
+                                       Margin="8,0,0,0"
+                                       Content="Refresh"
+                                       Command="{Binding RefreshModelsCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Draft rules with AI" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Generate a rule pack from sample messages. Save your endpoint settings first." />
+                        </StackPanel>
+                        <ui:Button Grid.Column="1"
+                                   Appearance="Secondary"
+                                   VerticalAlignment="Center"
+                                   Icon="{ui:SymbolIcon Sparkle24}"
+                                   Content="Draft rules with AI…"
+                                   Click="OnDraftRulesClicked" />
+                    </Grid>
+                </Border>
+
                 <!-- ======================= SYSTEM ======================= -->
                 <ui:TextBlock Style="{StaticResource SectionTitle}" Text="System" />
 

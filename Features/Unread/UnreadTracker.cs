@@ -62,6 +62,9 @@ public sealed class UnreadTracker
         // changes that affect counts always go through a delete, so this also covers
         // topic removal-with-history.
         bus.Subscribe<MessagesDeleted>(this, _ => Refresh());
+        // A message was retroactively hidden (a problem folded by its resolution) — it
+        // drops out of the suppressed-excluding count, so re-seed.
+        bus.Subscribe<MessageSuppressed>(this, _ => Refresh());
     }
 
     public int Total
@@ -122,6 +125,10 @@ public sealed class UnreadTracker
 
     private void OnMessageInserted(HistoryMessage m)
     {
+        // Suppressed messages don't nag: they're excluded from the unread count
+        // (GetUnreadCounts also filters them, so the seeded cache agrees).
+        if (m.Suppressed) return;
+
         bool viewing;
         lock (_lock)
         {

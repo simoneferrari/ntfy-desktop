@@ -59,6 +59,11 @@
       <XamlRuntime>Wpf</XamlRuntime>
       <SubType>Designer</SubType>
     </Page>
+    <Page Update="Features\Rules\Ai\DraftRulesDialog.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <XamlRuntime>Wpf</XamlRuntime>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Update="Features\Feed\FeedPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <XamlRuntime>Wpf</XamlRuntime>
@@ -81,6 +86,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Bundled default provider presets; copied to App.DataPath on first run, then
+         user-overridable there (so base URLs can change without an app release). -->
+    <Content Include="assets\providers.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- WPF Resources referenced via pack URI: app.ico for the window/titlebar,
          tray-*.ico for the per-state system-tray icon. -->
     <Resource Include="assets\app.ico" />
@@ -91,6 +104,16 @@
 
   <ItemGroup>
     <Compile Remove="Features\Settings\DependencyInjection.cs" />
+  </ItemGroup>
+
+  <!-- The test project lives under this project's directory, so its files would
+       otherwise be swept into the main (WPF) project's default globs. Exclude them. -->
+  <ItemGroup>
+    <Compile Remove="NtfyDesktop.Tests\**\*.cs" />
+    <None Remove="NtfyDesktop.Tests\**\*" />
+    <Page Remove="NtfyDesktop.Tests\**\*" />
+    <Resource Remove="NtfyDesktop.Tests\**\*" />
+    <EmbeddedResource Remove="NtfyDesktop.Tests\**\*" />
   </ItemGroup>
 
   <ItemGroup>

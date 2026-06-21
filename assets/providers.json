@@ -1,0 +1,11 @@
+[
+  { "name": "OpenAI", "baseUrl": "https://api.openai.com/v1", "defaultModel": "gpt-4o" },
+  { "name": "Anthropic", "baseUrl": "https://api.anthropic.com/v1", "defaultModel": "claude-3-5-sonnet-latest" },
+  { "name": "Google Gemini", "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai", "defaultModel": "gemini-1.5-pro" },
+  { "name": "OpenRouter", "baseUrl": "https://openrouter.ai/api/v1", "defaultModel": "openai/gpt-4o" },
+  { "name": "DeepSeek", "baseUrl": "https://api.deepseek.com/v1", "defaultModel": "deepseek-chat" },
+  { "name": "Groq", "baseUrl": "https://api.groq.com/openai/v1", "defaultModel": "llama-3.3-70b-versatile" },
+  { "name": "Mistral", "baseUrl": "https://api.mistral.ai/v1", "defaultModel": "mistral-large-latest" },
+  { "name": "xAI (Grok)", "baseUrl": "https://api.x.ai/v1", "defaultModel": "grok-2-latest" },
+  { "name": "Ollama (local)", "baseUrl": "http://localhost:11434/v1", "defaultModel": "" }
+]

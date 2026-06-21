@@ -140,6 +140,10 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 - [x] Update download progress — a progress bar in the update banner while an update downloads, so large updates don't look stalled
 - [x] Encrypt `history.db` at rest
 
+**0.75 — Notification rule engine**
+- [x] Phase 1 — the deterministic engine: declarative JSON rule packs that suppress routine noise, correlate paired events (e.g. Zabbix PROBLEM/RESOLVED — both notify, then the closed incident folds out of the feed), and raise heartbeat/absence alerts when expected recurring messages stop arriving; plus AI-assisted authoring (draft a pack from sample messages via a bring-your-own OpenAI-compatible endpoint, with provider presets and a live model list)
+- [ ] Phase 2 — in-app rule-pack management UI: browse, create, edit, enable/disable, and delete rules and packs without hand-editing JSON
+
 **0.8 — Sending, reliability & notification control**
 - [ ] Publish messages — a compose window to send a notification to a topic (title, body, priority, tags, `click` URL, action buttons), making the app a full two-way ntfy client rather than receive-only
 - [ ] Multiplex topics per server onto a single WebSocket (like the official web client; fewer sockets, avoids per-visitor connection/subscription limits)

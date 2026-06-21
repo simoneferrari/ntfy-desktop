@@ -68,6 +68,10 @@
                               Text="{Binding Subtitle}" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <ui:ToggleSwitch Content="Show suppressed"
+                                 IsChecked="{Binding ShowSuppressed, Mode=TwoWay}"
+                                 Margin="0,0,12,0"
+                                 VerticalAlignment="Center" />
                 <ui:Button Appearance="Secondary"
                            Content="Reconnect"
                            Icon="{ui:SymbolIcon ArrowSync24}"

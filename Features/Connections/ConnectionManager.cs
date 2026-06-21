@@ -5,6 +5,7 @@ using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections.Events;
 using NtfyDesktop.Features.History;
+using NtfyDesktop.Features.Rules;
 using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Topics;
 
@@ -28,13 +29,15 @@ public sealed class ConnectionManager : IAsyncDisposable
 {
     private readonly AppSettings _settings;
     private readonly HistoryRepository _history;
+    private readonly RuleEngine _rules;
     private readonly ConcurrentDictionary<Guid, TopicConnection> _connections = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public ConnectionManager(AppSettings settings, HistoryRepository history)
+    public ConnectionManager(AppSettings settings, HistoryRepository history, RuleEngine rules)
     {
         _settings = settings;
         _history = history;
+        _rules = rules;
 
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
     }
@@ -277,15 +280,27 @@ public sealed class ConnectionManager : IAsyncDisposable
         var topic = _settings.GetTopicById(conn.TopicId);
         var serverId = topic?.ServerId ?? Guid.Empty;
 
+        // Deterministic rule engine decides suppression + correlation. Pure read here;
+        // incident-store writes are applied below only for genuinely-new messages.
+        var verdict = _rules.Evaluate(incoming.Message);
+
         // Insert is INSERT-OR-IGNORE and reports novelty. A `since=<time>` catch-up is
         // inclusive of its boundary, so it re-delivers messages we already have — those
         // aren't new and must not reach the toast/summary path (the only consumer of
         // NtfyMessageReceived), or every reconnect would show a phantom "while you were
         // away" summary for the re-sent boundary message.
-        var isNew = _history.Insert(incoming.Message, conn.TopicId, serverId);
+        var isNew = _history.Insert(incoming.Message, conn.TopicId, serverId, verdict.HideFromFeed);
         if (!isNew) return;
 
-        new NtfyMessageReceived(incoming.Message, conn.TopicId, incoming.IsBackfill).PublishAsync();
+        // Apply incident side-effects (open/resolve) once, for the new message only.
+        _rules.ApplyIncidentSideEffects(verdict);
+
+        // A resolution folds its problem out of the feed: retroactively hide that row.
+        if (verdict.DismissMessageId is { } dismissId)
+            _history.SuppressMessage(dismissId);
+
+        new NtfyMessageReceived(incoming.Message, conn.TopicId, incoming.IsBackfill, verdict.SuppressToast)
+            .PublishAsync();
     }
 
     // Resume the connections regardless of notification-pause state — sockets

@@ -36,6 +36,7 @@ public sealed partial class FeedViewModel : ObservableObject
 
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private Priority _minPriority = Priority.Min;
+    [ObservableProperty] private bool _showSuppressed;
     [ObservableProperty] private bool _isEmpty = true;
     [ObservableProperty] private bool _isLoading;
 
@@ -71,6 +72,8 @@ public sealed partial class FeedViewModel : ObservableObject
         // and observable state directly — no Dispatcher.Invoke here.
         bus.Subscribe<MessageInserted>(this, e => OnMessageInserted(e.Message), ThreadOption.UIThread);
         bus.Subscribe<MessagesDeleted>(this, OnMessagesDeleted, ThreadOption.UIThread);
+        // A message was retroactively hidden (a problem folded by its resolution).
+        bus.Subscribe<MessageSuppressed>(this, OnMessageSuppressed, ThreadOption.UIThread);
 
         // Topic renamed / server-moved / enabled flip — re-enrich its rows and, if it's
         // the current topic, refresh the header + Reconnect button.
@@ -121,6 +124,7 @@ public sealed partial class FeedViewModel : ObservableObject
 
     partial void OnSearchTextChanged(string value) => _ = ReloadAsync();
     partial void OnMinPriorityChanged(Priority value) => _ = ReloadAsync();
+    partial void OnShowSuppressedChanged(bool value) => _ = ReloadAsync();
 
     private async Task ReloadAsync()
     {
@@ -129,12 +133,14 @@ public sealed partial class FeedViewModel : ObservableObject
         var topicId = CurrentTopicId;
         var minP = MinPriority;
         var search = SearchText;
+        var includeSuppressed = ShowSuppressed;
 
         var allTopics = topicId is null;
 
         var loaded = await Task.Run(() =>
         {
-            var raw = _history.Query(topicId: topicId, minPriority: minP, limit: MAX_DISPLAYED);
+            var raw = _history.Query(topicId: topicId, minPriority: minP, limit: MAX_DISPLAYED,
+                includeSuppressed: includeSuppressed);
             var list = string.IsNullOrWhiteSpace(search)
                 ? raw
                 : raw.Where(m => Matches(m, search)).ToList();
@@ -155,6 +161,7 @@ public sealed partial class FeedViewModel : ObservableObject
     {
         if (CurrentTopicId is { } id && m.TopicId != id) return;
         if (m.Priority < MinPriority) return;
+        if (m.Suppressed && !ShowSuppressed) return;
         if (!string.IsNullOrWhiteSpace(SearchText) && !Matches(m, SearchText)) return;
 
         Enrich(m, allTopics: CurrentTopicId is null);
@@ -184,6 +191,19 @@ public sealed partial class FeedViewModel : ObservableObject
             // Broad/unscoped deletion (all, retention) — re-sync from the DB.
             _ = ReloadAsync();
         }
+    }
+
+    private void OnMessageSuppressed(MessageSuppressed e)
+    {
+        // Unless we're showing suppressed rows, drop the now-hidden message from the feed.
+        if (ShowSuppressed) return;
+        for (var i = Messages.Count - 1; i >= 0; i--)
+            if (Messages[i].MessageId == e.MessageId)
+            {
+                Messages.RemoveAt(i);
+                break;
+            }
+        IsEmpty = Messages.Count == 0;
     }
 
     private void OnTopicUpdated(TopicSettings topic)

@@ -4,6 +4,7 @@ using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.Feed;
 using NtfyDesktop.Features.History;
 using NtfyDesktop.Features.Notifications;
+using NtfyDesktop.Features.Rules;
 using NtfyDesktop.Features.Settings;
 using NtfyDesktop.Features.Shell;
 using NtfyDesktop.Features.Topics;
@@ -23,6 +24,7 @@ public static class AppCompositionExtensions
         services.AddConnections();
         services.AddFeeds();
         services.AddHistory();
+        services.AddRules();
         services.AddSettings();
         services.AddTopics();
         services.AddUnread();

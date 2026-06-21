@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Extensions.DependencyInjection;
+using NtfyDesktop.Features.Rules.Ai;
 using NtfyDesktop.Features.Settings.Dialogs;
 using NtfyDesktop.Features.Updates;
 using Button = Wpf.Ui.Controls.Button;
@@ -10,6 +12,7 @@ namespace NtfyDesktop.Features.Settings;
 public partial class SettingsPage : Page
 {
     private readonly SettingsViewModel _vm;
+    private bool _suspendKeySync;
 
     public SettingsPage(SettingsViewModel viewModel)
     {
@@ -18,7 +21,34 @@ public partial class SettingsPage : Page
 
         // Re-read settings every time the page is shown (page is transient, VM is a
         // singleton). Snapshot reset happens inside Load(), so IsDirty starts false.
-        Loaded += (_, _) => _vm.Load();
+        Loaded += (_, _) =>
+        {
+            _vm.Load();
+            // PasswordBox.Password isn't bindable — push the loaded key in manually.
+            _suspendKeySync = true;
+            AiKeyBox.Password = _vm.AiApiKey;
+            _suspendKeySync = false;
+        };
+    }
+
+    private void OnAiKeyChanged(object sender, RoutedEventArgs e)
+    {
+        if (_suspendKeySync) return;
+        _vm.AiApiKey = AiKeyBox.Password;
+    }
+
+    private void OnDraftRulesClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var vm = App.Services.GetRequiredService<DraftRulesViewModel>();
+            var dialog = new DraftRulesDialog(vm, topicId: null) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Unexpected error: " + ex.Message);
+        }
     }
 
     private async void OnSaveClicked(object sender, RoutedEventArgs e)

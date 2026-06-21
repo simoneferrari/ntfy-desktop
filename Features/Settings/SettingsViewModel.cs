@@ -6,6 +6,7 @@ using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Domain;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.History;
+using NtfyDesktop.Features.Rules.Ai;
 using NtfyDesktop.Features.Settings.Events;
 using NtfyDesktop.Features.Updates;
 
@@ -20,6 +21,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ConnectionManager _connections;
     private readonly HistoryRepository _history;
     private readonly UpdateService _updates;
+    private readonly ProviderPresets _providers;
+    private readonly ModelCatalog _modelCatalog;
 
     private bool _loading;
     private FormSnapshot _snapshot = FormSnapshot.Empty;
@@ -29,6 +32,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         nameof(IsDirty),
         nameof(CanSave),
         nameof(DefaultServerId),
+        // AI key is persisted on Save like a secret, not snapshot-dirty-tracked; model
+        // list + fetch state are transient UI.
+        nameof(AiApiKey),
+        nameof(IsFetchingModels),
         // Transient update-check UI — never part of the saved form.
         nameof(UpdateStatus),
         nameof(HasUpdateStatus),
@@ -61,6 +68,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _autoDownloadMaxFileMb = 5;
     [ObservableProperty] private int _attachmentCacheMaxMb = 100;
     [ObservableProperty] private bool _autoUpdateCheckEnabled = true;
+
+    // ===== Notification rules + AI authoring =====
+    [ObservableProperty] private bool _rulesEnabled = true;
+    [ObservableProperty] private string _aiProviderName = "Custom";
+    [ObservableProperty] private string _aiBaseUrl = string.Empty;
+    [ObservableProperty] private string _aiModel = string.Empty;
+    [ObservableProperty] private string _aiApiKey = string.Empty; // pumped from PasswordBox; not snapshotted
+    [ObservableProperty] private bool _isFetchingModels;
+
+    /// <summary>Provider preset names plus a trailing "Custom".</summary>
+    public ObservableCollection<string> AiProviders { get; } = new();
+
+    /// <summary>Live model ids for the selected provider (populated by Refresh).</summary>
+    public ObservableCollection<string> AiModels { get; } = new();
+
+    private const string CustomProvider = "Custom";
 
     [ObservableProperty] private bool _isDirty;
 
@@ -113,12 +136,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     public SettingsViewModel(AppSettings settings, ConnectionManager connections,
-        HistoryRepository history, UpdateService updates)
+        HistoryRepository history, UpdateService updates,
+        ProviderPresets providers, ModelCatalog modelCatalog)
     {
         _settings = settings;
         _connections = connections;
         _history = history;
         _updates = updates;
+        _providers = providers;
+        _modelCatalog = modelCatalog;
         Load();
     }
 
@@ -136,6 +162,24 @@ public sealed partial class SettingsViewModel : ObservableObject
         AutoDownloadMaxFileMb   = _settings.AutoDownloadMaxFileMb;
         AttachmentCacheMaxMb    = _settings.AttachmentCacheMaxMb;
         AutoUpdateCheckEnabled  = _settings.AutoUpdateCheckEnabled;
+
+        // Notification rules + AI endpoint.
+        RulesEnabled = _settings.RulesEnabled;
+        AiBaseUrl    = _settings.AiBaseUrl;
+        AiModel      = _settings.AiModel;
+        AiApiKey     = _settings.GetAiApiKey();
+
+        AiProviders.Clear();
+        foreach (var p in _providers.All) AiProviders.Add(p.Name);
+        AiProviders.Add(CustomProvider);
+        // Match the saved base URL to a preset (else Custom). Set while _loading so the
+        // change handler doesn't clobber the saved base URL / model.
+        AiProviderName = _providers.All
+            .FirstOrDefault(p => string.Equals(p.BaseUrl, AiBaseUrl, StringComparison.OrdinalIgnoreCase))?.Name
+            ?? CustomProvider;
+
+        AiModels.Clear();
+        if (!string.IsNullOrEmpty(AiModel)) AiModels.Add(AiModel);
 
         ReloadServers();
         RefreshChannel();
@@ -270,6 +314,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         var autoUpdateChanged = _settings.AutoUpdateCheckEnabled != AutoUpdateCheckEnabled;
         _settings.AutoUpdateCheckEnabled = AutoUpdateCheckEnabled;
 
+        _settings.RulesEnabled = RulesEnabled;
+        _settings.AiBaseUrl    = AiBaseUrl?.Trim() ?? string.Empty;
+        _settings.AiModel      = AiModel?.Trim() ?? string.Empty;
+        _settings.SetAiApiKey(AiApiKey);
+
         if (TimeOnly.TryParseExact(ActiveHoursStartText, "HH:mm", out var start))
             _settings.ActiveHoursStart = start;
         if (TimeOnly.TryParseExact(ActiveHoursEndText, "HH:mm", out var end))
@@ -294,6 +343,49 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void Discard() => Load();
+
+    // Selecting a provider preset fills the base URL + default model. "Custom" leaves the
+    // fields as-is for manual entry. Guarded during Load so it doesn't clobber saved values.
+    partial void OnAiProviderNameChanged(string value)
+    {
+        if (_loading) return;
+        var preset = _providers.All.FirstOrDefault(p => p.Name == value);
+        if (preset is null) return; // Custom — leave fields as-is
+
+        // Only apply the preset's defaults when genuinely switching to a different provider.
+        // On page reload the combo re-selects the same provider and re-fires this; without
+        // this guard it would clobber the user's saved base URL / model.
+        if (string.Equals(preset.BaseUrl, AiBaseUrl, StringComparison.OrdinalIgnoreCase)) return;
+
+        AiBaseUrl = preset.BaseUrl;
+        AiModel = preset.DefaultModel ?? string.Empty;
+        AiModels.Clear();
+        if (!string.IsNullOrEmpty(AiModel)) AiModels.Add(AiModel);
+    }
+
+    // Fetches the provider's live model list (best-effort). Keeps the current model if the
+    // endpoint doesn't support /models or the call fails.
+    [RelayCommand]
+    private async Task RefreshModelsAsync()
+    {
+        if (IsFetchingModels) return;
+        IsFetchingModels = true;
+        try
+        {
+            var models = await _modelCatalog.FetchAsync(AiBaseUrl ?? string.Empty, AiApiKey, CancellationToken.None);
+            var current = AiModel;
+            AiModels.Clear();
+            foreach (var m in models) AiModels.Add(m);
+            if (!string.IsNullOrEmpty(current) && !AiModels.Contains(current))
+                AiModels.Insert(0, current);
+            if (string.IsNullOrEmpty(AiModel) && AiModels.Count > 0)
+                AiModel = AiModels[0];
+        }
+        finally
+        {
+            IsFetchingModels = false;
+        }
+    }
 
     // Manual update check (the "Check for updates" button). CheckAsync raises the
     // banner + toast itself when something's found; here we drive the inline status
@@ -356,7 +448,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         AutoDownloadAttachments,
         AutoDownloadMaxFileMb,
         AttachmentCacheMaxMb,
-        AutoUpdateCheckEnabled);
+        AutoUpdateCheckEnabled,
+        RulesEnabled,
+        AiProviderName,
+        AiBaseUrl,
+        AiModel);
 
     private readonly record struct FormSnapshot(
         Priority GlobalMinPriority,
@@ -369,10 +465,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         bool AutoDownloadAttachments,
         int AutoDownloadMaxFileMb,
         int AttachmentCacheMaxMb,
-        bool AutoUpdateCheckEnabled)
+        bool AutoUpdateCheckEnabled,
+        bool RulesEnabled,
+        string AiProviderName,
+        string AiBaseUrl,
+        string AiModel)
     {
         public static readonly FormSnapshot Empty = new(
-            Priority.Min, 0, false, false, string.Empty, string.Empty, true, false, 5, 100, true);
+            Priority.Min, 0, false, false, string.Empty, string.Empty, true, false, 5, 100, true,
+            true, "Custom", string.Empty, string.Empty);
     }
 }
 

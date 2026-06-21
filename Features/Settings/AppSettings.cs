@@ -197,6 +197,26 @@ public class AppSettings
     /// user's Windows profile) makes the encrypted history unrecoverable — same as the token.</summary>
     public string EncryptedHistoryKey { get; set; } = string.Empty;
 
+    // ===== AI-assisted rule authoring endpoint (Phase 1c) =====
+
+    /// <summary>OpenAI-compatible base URL for AI pack drafting (e.g. https://api.openai.com/v1).</summary>
+    public string AiBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>Model id used for AI pack drafting.</summary>
+    public string AiModel { get; set; } = string.Empty;
+
+    /// <summary>DPAPI-wrapped (CurrentUser) API key for the AI endpoint — same protection
+    /// class as the access token. Empty when no key is set.</summary>
+    public string EncryptedAiApiKey { get; set; } = string.Empty;
+
+    /// <summary>The AI endpoint API key in plaintext, or empty when unset.</summary>
+    public string GetAiApiKey() =>
+        string.IsNullOrEmpty(EncryptedAiApiKey) ? string.Empty : TokenProtector.Decrypt(EncryptedAiApiKey);
+
+    /// <summary>Stores the AI endpoint API key DPAPI-wrapped (clears it when null/empty).</summary>
+    public void SetAiApiKey(string? value) =>
+        EncryptedAiApiKey = string.IsNullOrEmpty(value) ? string.Empty : TokenProtector.Encrypt(value);
+
     public Priority GlobalMinPriority { get; set; } = Priority.Min;
     public int HistoryRetentionDays { get; set; } = 30;
 
@@ -252,6 +272,11 @@ public class AppSettings
     // "Start with Windows" is stored exclusively in the HKCU\...\Run registry key
     // (see StartupManager); it has no representation in this file.
     public bool IsPaused { get; set; } = false;
+
+    /// <summary>Master switch for the notification rule engine. When false, the engine
+    /// passes every message through unchanged.</summary>
+    public bool RulesEnabled { get; set; } = true;
+
     public bool ActiveHoursEnabled { get; set; } = false;
     public TimeOnly ActiveHoursStart { get; set; } = new TimeOnly(9, 0);
     public TimeOnly ActiveHoursEnd { get; set; } = new TimeOnly(18, 0);

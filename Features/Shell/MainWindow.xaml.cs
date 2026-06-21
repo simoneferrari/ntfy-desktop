@@ -5,6 +5,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using Microsoft.Extensions.DependencyInjection;
 using NtfyDesktop.Core.Messaging;
 using NtfyDesktop.Features.Connections;
 using NtfyDesktop.Features.Connections.Events;
@@ -814,6 +815,25 @@ public partial class MainWindow
             }
         };
 
+        var draftRulesItem = new System.Windows.Controls.MenuItem
+        {
+            Header = "Draft rules from this topic…",
+            Icon = new SymbolIcon { Symbol = SymbolRegular.Sparkle24, FontSize = 14 },
+        };
+        draftRulesItem.Click += (_, _) =>
+        {
+            try
+            {
+                var vm = App.Services.GetRequiredService<NtfyDesktop.Features.Rules.Ai.DraftRulesViewModel>();
+                var dialog = new NtfyDesktop.Features.Rules.Ai.DraftRulesDialog(vm, topic.Id) { Owner = this };
+                dialog.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Unexpected error: " + ex.Message);
+            }
+        };
+
         var moveUp = new System.Windows.Controls.MenuItem
         {
             Header = "Move up",
@@ -845,6 +865,7 @@ public partial class MainWindow
         menu.Items.Add(new Separator());
         menu.Items.Add(markReadItem);
         menu.Items.Add(editItem);
+        menu.Items.Add(draftRulesItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(moveUp);
         menu.Items.Add(moveDown);
