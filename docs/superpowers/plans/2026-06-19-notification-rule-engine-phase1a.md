@@ -2086,3 +2086,35 @@ git commit -m "feat(feed): hide suppressed messages with a Show suppressed toggl
 **Placeholder scan:** none — every code step has complete code and every test step has runnable assertions.
 
 **Type consistency:** `RuleEngine.Evaluate`/`ApplyIncidentSideEffects`, `IIncidentStore.FindOpen/Open/Resolve`, `RuleVerdict.{Suppress,Tags,OpenIncident,CloseIncident}`, `Insert(..., bool suppressed)`, `Query(..., bool includeSuppressed)`, and `NtfyMessageReceived.Suppressed` are used consistently across Tasks 5–13. The `RuleEngine` two-constructor approach (Task 9) keeps the Task 5/6 `Func`-based tests valid.
+
+---
+
+## Addendum — Correlation correction (Tasks 14–15)
+
+After Phase 1a was tested in the running app, the maintainer flagged that
+*suppressing the resolved toast* is the wrong behaviour: a problem opening **and**
+closing are both things to be told about live; the noise is only the feed clutter.
+The behaviour was corrected (design doc Decisions log updated accordingly):
+
+- **Verdict split into two axes.** `RuleVerdict.Suppress` → `SuppressToast` +
+  `HideFromFeed` (+ `DismissMessageId`). A `match` `suppressToast` rule sets both
+  (pure noise: no toast, no feed row). A correlated *resolution* sets only
+  `HideFromFeed` — it still toasts.
+- **Correlation folds, doesn't silence.** `CorrelateRule.OnClose` removed (folding is
+  intrinsic). On a close that pairs with an open incident: the resolution toasts, is
+  stored hidden from the feed, and the **original problem row is retroactively hidden**
+  via `HistoryRepository.SuppressMessage` → new `MessageSuppressed` event. The feed
+  becomes a list of still-open problems.
+- **Reactions.** `FeedViewModel` drops the row on `MessageSuppressed` (unless "Show
+  suppressed"); `UnreadTracker` re-seeds. `NtfyMessageReceived.Suppressed` →
+  `SuppressToast`.
+- **Tests updated:** `RuleEngineMatchTests`, `RuleEngineCorrelateTests`,
+  `PackParserTests` assert the two-axis verdict and intrinsic folding (34 green).
+
+### Updated manual-test expectations (supersedes Task 13 Step 6, steps 4–7)
+
+4. Title **"PROBLEM"** body **"id=7"** → normal toast + feed row (an open issue).
+5. Title **"RESOLVED"** body **"id=7"** → **toast still shown**, and **both** the
+   problem and resolved rows disappear from the default feed (incident folded).
+6. Title **"RESOLVED"** body **"id=999"** (no prior PROBLEM) → normal toast + feed row.
+7. Toggle **"Show suppressed"** on → the folded problem + resolved rows reappear.
