@@ -35,10 +35,12 @@ public sealed class RuleEngine
     {
         if (!_settings.RulesEnabled) return RuleVerdict.PassThrough;
 
-        var suppress = false;
+        var suppressToast = false;
+        var hideFromFeed = false;
         var tags = new List<string>();
         IncidentOpen? openIncident = null;
         (string RuleId, string Key)? closeIncident = null;
+        string? dismissMessageId = null;
 
         foreach (var pack in _packsProvider())
         {
@@ -47,7 +49,7 @@ public sealed class RuleEngine
                 try
                 {
                     if (!rule.When.Matches(message)) continue;
-                    ApplyActions(rule.Actions, ref suppress, tags);
+                    ApplyActions(rule.Actions, ref suppressToast, ref hideFromFeed, tags);
                 }
                 catch
                 {
@@ -61,17 +63,23 @@ public sealed class RuleEngine
                 {
                     if (rule.Open.Matches(message))
                     {
+                        // A problem: record it open. It toasts and shows in the feed
+                        // normally — a still-open problem is exactly what the feed surfaces.
                         var key = rule.Key.Extract(message);
                         if (key is not null)
                             openIncident = new IncidentOpen(rule.Id, key, message.Id, message.Time);
                     }
                     else if (rule.Close.Matches(message))
                     {
+                        // A resolution: only folds when it pairs with an open problem.
+                        // It still toasts (the "all good" signal), but both it and the
+                        // original problem are hidden from the default feed.
                         var key = rule.Key.Extract(message);
-                        if (key is not null && _incidents.FindOpen(rule.Id, key) is not null)
+                        if (key is not null && _incidents.FindOpen(rule.Id, key) is { } incident)
                         {
-                            ApplyActions(rule.OnClose, ref suppress, tags);
+                            hideFromFeed = true;
                             closeIncident = (rule.Id, key);
+                            dismissMessageId = incident.OpenMessageId;
                         }
                     }
                 }
@@ -84,21 +92,26 @@ public sealed class RuleEngine
 
         return new RuleVerdict
         {
-            Suppress = suppress,
+            SuppressToast = suppressToast,
+            HideFromFeed = hideFromFeed,
             Tags = tags,
             OpenIncident = openIncident,
             CloseIncident = closeIncident,
+            DismissMessageId = dismissMessageId,
         };
     }
 
-    private static void ApplyActions(IReadOnlyList<RuleAction> actions, ref bool suppress, List<string> tags)
+    private static void ApplyActions(IReadOnlyList<RuleAction> actions,
+        ref bool suppressToast, ref bool hideFromFeed, List<string> tags)
     {
         foreach (var action in actions)
         {
             switch (action.Kind)
             {
                 case RuleActionKind.SuppressToast:
-                    suppress = true;
+                    // A match suppress is "this is pure noise": no toast and no feed row.
+                    suppressToast = true;
+                    hideFromFeed = true;
                     break;
                 case RuleActionKind.Tag when !string.IsNullOrEmpty(action.Value):
                     if (!tags.Contains(action.Value)) tags.Add(action.Value);

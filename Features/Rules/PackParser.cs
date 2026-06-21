@@ -35,12 +35,13 @@ public static class PackParser
                             ParseActions(rule, "do")));
                         break;
                     case "correlate":
+                        // Folding behaviour is intrinsic; any "onClose" in the JSON is
+                        // ignored (tolerated for forward/backward compatibility).
                         correlateRules.Add(new CorrelateRule(
                             Id: $"{name}#{index}",
                             Open: ParseMatcher(rule, "open"),
                             Close: ParseMatcher(rule, "close"),
-                            Key: ParseKey(rule),
-                            OnClose: ParseActions(rule, "onClose")));
+                            Key: ParseKey(rule)));
                         break;
                     // unknown type (e.g. "expect", phase 1b) → skip
                 }

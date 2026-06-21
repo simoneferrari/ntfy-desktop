@@ -23,19 +23,21 @@ public class RuleEngineMatchTests
     public void NoRules_PassesThrough()
     {
         var v = Engine([]).Evaluate(Msg());
-        Assert.False(v.Suppress);
+        Assert.False(v.SuppressToast);
+        Assert.False(v.HideFromFeed);
         Assert.Empty(v.Tags);
     }
 
     [Fact]
-    public void MatchingSuppressRule_SetsSuppress()
+    public void MatchingSuppressRule_SuppressesToastAndHidesFromFeed()
     {
         var rule = new MatchRule(
             new Matcher { Topic = "backups", TitleRegex = "succeeded" },
             [new RuleAction(RuleActionKind.SuppressToast)]);
 
         var v = Engine([Pack(rule)]).Evaluate(Msg(title: "Backup succeeded"));
-        Assert.True(v.Suppress);
+        Assert.True(v.SuppressToast);
+        Assert.True(v.HideFromFeed);
     }
 
     [Fact]
@@ -46,7 +48,8 @@ public class RuleEngineMatchTests
             [new RuleAction(RuleActionKind.SuppressToast)]);
 
         var v = Engine([Pack(rule)]).Evaluate(Msg(title: "Backup FAILED"));
-        Assert.False(v.Suppress);
+        Assert.False(v.SuppressToast);
+        Assert.False(v.HideFromFeed);
     }
 
     [Fact]
@@ -68,6 +71,7 @@ public class RuleEngineMatchTests
             [new RuleAction(RuleActionKind.SuppressToast)]);
 
         var v = Engine([Pack(rule)], enabled: false).Evaluate(Msg());
-        Assert.False(v.Suppress);
+        Assert.False(v.SuppressToast);
+        Assert.False(v.HideFromFeed);
     }
 }

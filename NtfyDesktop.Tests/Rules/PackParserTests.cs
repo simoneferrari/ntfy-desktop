@@ -52,7 +52,7 @@ public class PackParserTests
         Assert.Equal("Zabbix#0", rule.Id);
         Assert.Equal(KeyField.Body, rule.Key.From);
         Assert.Equal("^RESOLVED", rule.Close.TitleRegex);
-        Assert.Contains(rule.OnClose, a => a.Kind == RuleActionKind.SuppressToast);
+        Assert.Equal("^PROBLEM", rule.Open.TitleRegex);
     }
 
     [Fact]
