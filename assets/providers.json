@@ -1,0 +1,6 @@
+[
+  { "name": "OpenAI", "baseUrl": "https://api.openai.com/v1", "defaultModel": "gpt-4o" },
+  { "name": "Anthropic", "baseUrl": "https://api.anthropic.com/v1", "defaultModel": "claude-3-5-sonnet-latest" },
+  { "name": "Google Gemini", "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai", "defaultModel": "gemini-1.5-pro" },
+  { "name": "Ollama (local)", "baseUrl": "http://localhost:11434/v1", "defaultModel": "" }
+]

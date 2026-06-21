@@ -81,6 +81,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Bundled default provider presets; copied to App.DataPath on first run, then
+         user-overridable there (so base URLs can change without an app release). -->
+    <Content Include="assets\providers.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- WPF Resources referenced via pack URI: app.ico for the window/titlebar,
          tray-*.ico for the per-state system-tray icon. -->
     <Resource Include="assets\app.ico" />
