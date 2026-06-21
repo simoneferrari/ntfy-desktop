@@ -56,6 +56,34 @@ public class PackParserTests
     }
 
     [Fact]
+    public void Parse_MatchRule_MatcherFieldsAtTopLevel_StillParsed()
+    {
+        // Weaker models put titleRegex beside "type" instead of inside "when".
+        const string json = """
+            { "name":"p", "rules":[
+              { "type":"match", "titleRegex":"^Backup succeeded$", "do":["suppressToast"] } ] }
+            """;
+        var rule = Assert.Single(PackParser.Parse(json).MatchRules);
+        Assert.Equal("^Backup succeeded$", rule.When.TitleRegex);
+    }
+
+    [Fact]
+    public void Parse_CorrelateKey_Shorthand_BodyRegex()
+    {
+        // Shorthand { "body": "<regex>" } instead of { "from":"body", "regex":"..." }.
+        const string json = """
+            { "name":"z", "rules":[
+              { "type":"correlate",
+                "open":  { "titleRegex":"^PROBLEM" },
+                "close": { "titleRegex":"^RESOLVED" },
+                "key":   { "body": "Event ID: (?<key>\\d+)" } } ] }
+            """;
+        var rule = Assert.Single(PackParser.Parse(json).CorrelateRules);
+        Assert.Equal(KeyField.Body, rule.Key.From);
+        Assert.Equal(@"Event ID: (?<key>\d+)", rule.Key.Regex);
+    }
+
+    [Fact]
     public void Parse_UnknownActionString_IsIgnored()
     {
         const string json = """

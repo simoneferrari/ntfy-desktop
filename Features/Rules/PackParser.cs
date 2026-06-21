@@ -86,8 +86,11 @@ public static class PackParser
 
     private static Matcher ParseMatcher(JsonElement rule, string property)
     {
-        if (!rule.TryGetProperty(property, out var m) || m.ValueKind != JsonValueKind.Object)
-            return new Matcher();
+        // Prefer the named matcher object (when/open/close). If it's absent, fall back to the
+        // rule object itself — weaker models often put matcher fields at the rule's top level
+        // (e.g. "titleRegex" beside "type"); reading them there beats producing a match-all.
+        var m = rule.TryGetProperty(property, out var obj) && obj.ValueKind == JsonValueKind.Object
+            ? obj : rule;
 
         return new Matcher
         {
@@ -104,9 +107,19 @@ public static class PackParser
         if (!rule.TryGetProperty("key", out var k) || k.ValueKind != JsonValueKind.Object)
             return new KeySelector();
 
+        var regex = Str(k, "regex");
         var from = string.Equals(Str(k, "from"), "title", StringComparison.OrdinalIgnoreCase)
             ? KeyField.Title : KeyField.Body;
-        return new KeySelector { From = from, Regex = Str(k, "regex") ?? string.Empty };
+
+        // Tolerate the shorthand { "body": "<regex>" } / { "title": "<regex>" } that weaker
+        // models emit instead of { "from": ..., "regex": ... }.
+        if (string.IsNullOrEmpty(regex))
+        {
+            if (Str(k, "body") is { Length: > 0 } b) { regex = b; from = KeyField.Body; }
+            else if (Str(k, "title") is { Length: > 0 } t) { regex = t; from = KeyField.Title; }
+        }
+
+        return new KeySelector { From = from, Regex = regex ?? string.Empty };
     }
 
     private static IReadOnlyList<RuleAction> ParseActions(JsonElement rule, string property)

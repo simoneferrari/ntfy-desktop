@@ -10,7 +10,9 @@ public static class PackSummarizer
         var lines = new List<string>();
 
         foreach (var r in pack.MatchRules)
-            lines.Add($"Suppress messages where {Describe(r.When)} (no toast, hidden from feed).");
+            lines.Add(IsEmpty(r.When)
+                ? "⚠ Suppress EVERY message — this rule has no conditions and will hide everything (likely a mistake)."
+                : $"Suppress messages where {Describe(r.When)} (no toast, hidden from feed).");
 
         foreach (var r in pack.CorrelateRules)
             lines.Add($"Pair: open when {Describe(r.Open)}, close when {Describe(r.Close)}, " +
@@ -24,6 +26,10 @@ public static class PackSummarizer
 
         return lines;
     }
+
+    private static bool IsEmpty(Matcher m) =>
+        m.Topic is null && m.MinPriority is null && m.TitleRegex is null &&
+        m.BodyRegex is null && m.Tag is null;
 
     private static string Describe(Matcher m)
     {
