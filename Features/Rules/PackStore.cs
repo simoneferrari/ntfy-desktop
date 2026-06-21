@@ -36,4 +36,25 @@ public sealed class PackStore
         }
         Packs = packs;
     }
+
+    /// <summary>Writes a pack JSON to the packs directory (unique filename) and reloads,
+    /// so a freshly-drafted pack takes effect without a restart. Returns the written path.</summary>
+    public string Save(string suggestedName, string json)
+    {
+        Directory.CreateDirectory(_directory);
+
+        var slug = new string((suggestedName ?? "pack")
+            .Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray())
+            .Trim('-');
+        if (string.IsNullOrEmpty(slug)) slug = "pack";
+
+        var path = Path.Combine(_directory, slug + ".json");
+        var n = 1;
+        while (File.Exists(path))
+            path = Path.Combine(_directory, $"{slug}-{n++}.json");
+
+        File.WriteAllText(path, json);
+        Reload();
+        return path;
+    }
 }
