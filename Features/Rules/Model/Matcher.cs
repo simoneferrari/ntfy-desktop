@@ -19,30 +19,33 @@ public sealed record Matcher
     private Regex? _titleRe;
     private Regex? _bodyRe;
 
-    public bool Matches(NtfyMessage message)
+    public bool Matches(NtfyMessage message) =>
+        Matches(message.Topic, message.Title, message.Message, message.Priority, message.Tags);
+
+    public bool Matches(string topic, string? title, string? body, Priority priority, IReadOnlyList<string>? tags)
     {
         if (Topic is not null &&
-            !string.Equals(Topic, message.Topic, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(Topic, topic, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        if (MinPriority is { } min && message.Priority < min)
+        if (MinPriority is { } min && priority < min)
             return false;
 
         if (TitleRegex is not null)
         {
             _titleRe ??= Compile(TitleRegex);
-            if (message.Title is null || !_titleRe.IsMatch(message.Title)) return false;
+            if (title is null || !_titleRe.IsMatch(title)) return false;
         }
 
         if (BodyRegex is not null)
         {
             _bodyRe ??= Compile(BodyRegex);
-            if (message.Message is null || !_bodyRe.IsMatch(message.Message)) return false;
+            if (body is null || !_bodyRe.IsMatch(body)) return false;
         }
 
         if (Tag is not null &&
-            (message.Tags is null ||
-             !message.Tags.Any(t => string.Equals(t, Tag, StringComparison.OrdinalIgnoreCase))))
+            (tags is null ||
+             !tags.Any(t => string.Equals(t, Tag, StringComparison.OrdinalIgnoreCase))))
             return false;
 
         return true;
