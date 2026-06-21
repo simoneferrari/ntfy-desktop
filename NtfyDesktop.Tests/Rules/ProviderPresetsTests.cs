@@ -4,46 +4,70 @@ namespace NtfyDesktop.Tests.Rules;
 
 public class ProviderPresetsTests : IDisposable
 {
+    private const string BuiltIn = """
+        [{"name":"OpenAI","baseUrl":"https://api.openai.com/v1","defaultModel":"gpt-4o"},
+         {"name":"Anthropic","baseUrl":"https://api.anthropic.com/v1","defaultModel":"claude"}]
+        """;
+
     private readonly string _dir;
-    private readonly string _file;
+    private readonly string _userFile;
 
     public ProviderPresetsTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "ntfyprov_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        _file = Path.Combine(_dir, "providers.json");
+        _userFile = Path.Combine(_dir, "providers.json");
     }
 
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { /* best effort */ } }
 
     [Fact]
-    public void EnsureSeeded_WritesBundled_WhenAbsent()
+    public void NoUserFile_UsesBuiltIn()
     {
-        const string bundled = """[{"name":"OpenAI","baseUrl":"https://api.openai.com/v1","defaultModel":"gpt-4o"}]""";
-        var p = new ProviderPresets(_file);
-        p.EnsureSeeded(bundled);
-        Assert.True(File.Exists(_file));
-        var preset = Assert.Single(p.All);
-        Assert.Equal("OpenAI", preset.Name);
-        Assert.Equal("https://api.openai.com/v1", preset.BaseUrl);
-        Assert.Equal("gpt-4o", preset.DefaultModel);
+        var p = new ProviderPresets(_userFile);
+        p.Load(BuiltIn);
+        Assert.Equal(2, p.All.Count);
+        Assert.Contains(p.All, x => x.Name == "OpenAI");
+        Assert.Contains(p.All, x => x.Name == "Anthropic");
     }
 
     [Fact]
-    public void EnsureSeeded_DoesNotOverwriteExisting()
+    public void UserFile_AddsNewProvider()
     {
-        File.WriteAllText(_file, """[{"name":"Mine","baseUrl":"http://x/v1"}]""");
-        var p = new ProviderPresets(_file);
-        p.EnsureSeeded("""[{"name":"OpenAI","baseUrl":"https://api.openai.com/v1"}]""");
-        Assert.Equal("Mine", Assert.Single(p.All).Name);
+        File.WriteAllText(_userFile, """[{"name":"Local","baseUrl":"http://x/v1"}]""");
+        var p = new ProviderPresets(_userFile);
+        p.Load(BuiltIn);
+        Assert.Equal(3, p.All.Count);
+        Assert.Contains(p.All, x => x.Name == "Local");
     }
 
     [Fact]
-    public void InvalidFile_YieldsEmpty()
+    public void UserFile_OverridesBuiltInByName()
     {
-        File.WriteAllText(_file, "not json");
-        var p = new ProviderPresets(_file);
-        p.EnsureSeeded("[]");
+        File.WriteAllText(_userFile, """[{"name":"OpenAI","baseUrl":"http://override/v1","defaultModel":"custom"}]""");
+        var p = new ProviderPresets(_userFile);
+        p.Load(BuiltIn);
+
+        Assert.Equal(2, p.All.Count); // override, not append
+        var openai = p.All.First(x => x.Name == "OpenAI");
+        Assert.Equal("http://override/v1", openai.BaseUrl);
+        Assert.Equal("custom", openai.DefaultModel);
+    }
+
+    [Fact]
+    public void InvalidUserFile_FallsBackToBuiltIn()
+    {
+        File.WriteAllText(_userFile, "not json");
+        var p = new ProviderPresets(_userFile);
+        p.Load(BuiltIn);
+        Assert.Equal(2, p.All.Count);
+    }
+
+    [Fact]
+    public void InvalidBuiltIn_AndNoUser_Empty()
+    {
+        var p = new ProviderPresets(_userFile);
+        p.Load("nope");
         Assert.Empty(p.All);
     }
 }
