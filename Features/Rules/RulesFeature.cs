@@ -50,6 +50,17 @@ public static class RulesFeature
 
             services.AddSingleton<PackDraftService>();
             services.AddTransient<DraftRulesViewModel>();
+
+            // ===== Rule-pack manager (Phase 2) =====
+
+            services.AddTransient<Editor.RulePackManagerViewModel>(sp =>
+            {
+                var settings = sp.GetRequiredService<AppSettings>();
+                return new Editor.RulePackManagerViewModel(
+                    sp.GetRequiredService<PackStore>(),
+                    sp.GetRequiredService<RulePackHistoryService>(),
+                    () => settings.Topics.Select(t => (t.Id, t.EffectiveDisplayName)).ToList());
+            });
         }
     }
 }
