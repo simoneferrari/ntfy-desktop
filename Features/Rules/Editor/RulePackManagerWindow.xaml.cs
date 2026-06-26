@@ -1,7 +1,11 @@
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using Microsoft.Extensions.DependencyInjection;
+using NtfyDesktop.Features.History;
 using NtfyDesktop.Features.Rules.Ai;
+using NtfyDesktop.Features.Settings;
 
 namespace NtfyDesktop.Features.Rules.Editor;
 
@@ -34,13 +38,67 @@ public partial class RulePackManagerWindow
 
     private void OnDeletePack(object sender, RoutedEventArgs e) => _vm.DeleteSelectedPack();
 
-    private void OnAddRule(object sender, RoutedEventArgs e) =>
-        _vm.AddRule((string)((FrameworkElement)sender).Tag);
+    private void OnAddRuleClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && Resources["AddRuleMenu"] is ContextMenu menu)
+        {
+            menu.PlacementTarget = fe;
+            menu.Placement = PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+    }
+
+    private void OnAddRuleMenu(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag }) return;
+        if (tag.StartsWith("template:")) _vm.AddTemplate(tag["template:".Length..]);
+        else if (tag.StartsWith("blank:")) _vm.AddRule(tag["blank:".Length..]);
+    }
 
     private void OnDeleteRule(object sender, RoutedEventArgs e) => _vm.DeleteSelectedRule();
 
-    private void OnPreview(object sender, RoutedEventArgs e) => _vm.Preview();
-    // Rendering is via binding: PreviewSummary + PreviewResults are populated by Preview().
+    private void OnPickSample(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: MatcherViewModel matcher, Tag: string field }) return;
+
+        var history = App.Services.GetRequiredService<HistoryRepository>();
+        var msgs = history.Query(topicId: ResolveTopicId(matcher.Topic), limit: 50, includeSuppressed: true);
+        if (msgs.Count == 0)
+        {
+            System.Windows.MessageBox.Show("No stored messages to pick from for this topic yet.");
+            return;
+        }
+
+        var picker = new SampleMessagePickerWindow(msgs) { Owner = this };
+        if (picker.ShowDialog() != true || picker.Picked is not { } m) return;
+
+        if (field == "Body")
+        {
+            matcher.BodyMode = MatchMode.Contains;
+            matcher.BodyRegex = m.Body ?? "";
+        }
+        else
+        {
+            matcher.TitleMode = MatchMode.Contains;
+            matcher.TitleRegex = string.IsNullOrEmpty(m.Title) ? m.Topic : m.Title!;
+        }
+    }
+
+    private static System.Guid? ResolveTopicId(string rawTopic)
+    {
+        if (string.IsNullOrEmpty(rawTopic)) return null;
+        var settings = App.Services.GetRequiredService<AppSettings>();
+        return settings.Topics.FirstOrDefault(t =>
+            string.Equals(t.Name, rawTopic, System.StringComparison.OrdinalIgnoreCase))?.Id;
+    }
+
+    private void OnPreview(object sender, RoutedEventArgs e)
+    {
+        var report = _vm.Preview();
+        if (report is null || _vm.SelectedPack is null) return;
+        var scope = $"{_vm.SelectedScopeTopic?.Name ?? "All topics"}, last {_vm.ScopeCount}";
+        new RulePreviewWindow(report, _vm.SelectedPack.Name, scope) { Owner = this }.ShowDialog();
+    }
 
     private async void OnApply(object sender, RoutedEventArgs e)
     {

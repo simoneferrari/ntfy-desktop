@@ -4,10 +4,10 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:editor="clr-namespace:NtfyDesktop.Features.Rules.Editor"
                  Title="Manage rule packs"
-                 Width="940"
-                 Height="680"
-                 MinWidth="760"
-                 MinHeight="520"
+                 Width="960"
+                 Height="700"
+                 MinWidth="800"
+                 MinHeight="540"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
@@ -16,19 +16,22 @@
 
     <ui:FluentWindow.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <editor:NullToVisibilityConverter x:Key="NullToVis" />
 
-        <!-- Reusable matcher editor -->
+        <!-- Reusable matcher editor: topic dropdown + per-field match mode + 'pick from message' -->
         <DataTemplate x:Key="MatcherTemplate" DataType="{x:Type editor:MatcherViewModel}">
             <StackPanel>
-                <Grid Margin="0,0,0,4">
+                <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="8" />
-                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="150" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
                         <ui:TextBlock FontTypography="Caption" Text="Topic" />
-                        <ui:TextBox Text="{Binding Topic, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox ItemsSource="{Binding DataContext.TopicOptions, RelativeSource={RelativeSource AncestorType={x:Type ui:FluentWindow}}}"
+                                  DisplayMemberPath="Label" SelectedValuePath="Name"
+                                  SelectedValue="{Binding Topic, Mode=TwoWay}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <ui:TextBlock FontTypography="Caption" Text="Min priority" />
@@ -36,10 +39,39 @@
                                   SelectedItem="{Binding MinPriority, Mode=TwoWay}" />
                     </StackPanel>
                 </Grid>
-                <ui:TextBlock FontTypography="Caption" Text="Title regex" />
-                <ui:TextBox Margin="0,0,0,4" Text="{Binding TitleRegex, UpdateSourceTrigger=PropertyChanged}" />
-                <ui:TextBlock FontTypography="Caption" Text="Body regex" />
-                <ui:TextBox Margin="0,0,0,4" Text="{Binding BodyRegex, UpdateSourceTrigger=PropertyChanged}" />
+
+                <ui:TextBlock FontTypography="Caption" Text="Title" />
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0" ItemsSource="{x:Static editor:MatcherViewModel.MatchModes}"
+                              SelectedItem="{Binding TitleMode, Mode=TwoWay}" />
+                    <ui:TextBox Grid.Column="2" Text="{Binding TitleRegex, UpdateSourceTrigger=PropertyChanged}" />
+                    <ui:Button Grid.Column="4" Content="Pick…" Tag="Title" Click="OnPickSample"
+                               ToolTip="Fill from a sample message" />
+                </Grid>
+
+                <ui:TextBlock FontTypography="Caption" Text="Body" />
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0" ItemsSource="{x:Static editor:MatcherViewModel.MatchModes}"
+                              SelectedItem="{Binding BodyMode, Mode=TwoWay}" />
+                    <ui:TextBox Grid.Column="2" Text="{Binding BodyRegex, UpdateSourceTrigger=PropertyChanged}" />
+                    <ui:Button Grid.Column="4" Content="Pick…" Tag="Body" Click="OnPickSample"
+                               ToolTip="Fill from a sample message" />
+                </Grid>
+
                 <ui:TextBlock FontTypography="Caption" Text="Tag" />
                 <ui:TextBox Text="{Binding Tag, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
@@ -66,15 +98,45 @@
                 <ContentControl Content="{Binding Open}" ContentTemplate="{StaticResource MatcherTemplate}" />
                 <ui:TextBlock FontTypography="Subtitle" Text="Close (resolved) matches" Margin="0,12,0,4" />
                 <ContentControl Content="{Binding Close}" ContentTemplate="{StaticResource MatcherTemplate}" />
-                <ui:TextBlock FontTypography="Subtitle" Text="Correlation key" Margin="0,12,0,4" />
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                    <ui:TextBlock VerticalAlignment="Center" Text="From" />
-                    <ComboBox Width="100" Margin="8,0,0,0"
+                <ui:TextBlock FontTypography="Subtitle" Text="Correlation key" Margin="0,12,0,2" />
+                <ui:TextBlock FontTypography="Caption" Margin="0,0,0,6"
+                              Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                              TextWrapping="Wrap"
+                              Text="The shared id that ties a problem to its resolution (e.g. an event id present in both)." />
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <ui:TextBlock VerticalAlignment="Center" Text="Find it in the" />
+                    <ComboBox Width="90" Margin="8,0,0,0"
                               ItemsSource="{x:Static editor:CorrelateRuleViewModel.KeyFields}"
                               SelectedItem="{Binding KeyFrom, Mode=TwoWay}" />
+                    <ui:TextBlock VerticalAlignment="Center" Margin="12,0,0,0" Text="using" />
+                    <ComboBox Width="100" Margin="8,0,0,0"
+                              ItemsSource="{x:Static editor:CorrelateRuleViewModel.KeyModes}"
+                              SelectedItem="{Binding KeyMode, Mode=TwoWay}" />
                 </StackPanel>
-                <ui:TextBlock FontTypography="Caption" Text="Key regex — capture (?&lt;key&gt;…)" />
-                <ui:TextBox Text="{Binding KeyRegex, UpdateSourceTrigger=PropertyChanged}" />
+
+                <!-- Simple (guided) key -->
+                <Grid Visibility="{Binding IsSimpleKey, Converter={StaticResource BoolToVis}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="150" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <ui:TextBlock FontTypography="Caption" Text="Text just before the id (optional)" />
+                        <ui:TextBox PlaceholderText="e.g. Event ID:" Text="{Binding KeyLabel, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <ui:TextBlock FontTypography="Caption" Text="The id is a" />
+                        <ComboBox ItemsSource="{x:Static editor:CorrelateRuleViewModel.KeyIdTypes}"
+                                  SelectedItem="{Binding KeyIdType, Mode=TwoWay}" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Raw regex key -->
+                <StackPanel Visibility="{Binding IsRegexKey, Converter={StaticResource BoolToVis}}">
+                    <ui:TextBlock FontTypography="Caption" Text="Key regex — capture (?&lt;key&gt;…) the shared id" />
+                    <ui:TextBox Text="{Binding KeyRegex, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
             </StackPanel>
         </DataTemplate>
 
@@ -90,12 +152,26 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
-                        <ui:TextBlock FontTypography="Caption" Text="At least every (e.g. 26h)" />
-                        <ui:TextBox Text="{Binding Every, UpdateSourceTrigger=PropertyChanged}" />
+                        <ui:TextBlock FontTypography="Caption" Text="At least every" />
+                        <StackPanel Orientation="Horizontal">
+                            <ui:NumberBox Width="130" MinWidth="130" Minimum="1" ClearButtonEnabled="False"
+                                          SpinButtonPlacementMode="Inline"
+                                          Value="{Binding EveryAmount, Mode=TwoWay}" />
+                            <ComboBox Width="110" Margin="8,0,0,0"
+                                      ItemsSource="{x:Static editor:ExpectRuleViewModel.DurationUnits}"
+                                      SelectedItem="{Binding EveryUnit, Mode=TwoWay}" />
+                        </StackPanel>
                     </StackPanel>
                     <StackPanel Grid.Column="2">
-                        <ui:TextBlock FontTypography="Caption" Text="Grace (e.g. 1h)" />
-                        <ui:TextBox Text="{Binding Grace, UpdateSourceTrigger=PropertyChanged}" />
+                        <ui:TextBlock FontTypography="Caption" Text="Grace" />
+                        <StackPanel Orientation="Horizontal">
+                            <ui:NumberBox Width="130" MinWidth="130" Minimum="0" ClearButtonEnabled="False"
+                                          SpinButtonPlacementMode="Inline"
+                                          Value="{Binding GraceAmount, Mode=TwoWay}" />
+                            <ComboBox Width="110" Margin="8,0,0,0"
+                                      ItemsSource="{x:Static editor:ExpectRuleViewModel.DurationUnits}"
+                                      SelectedItem="{Binding GraceUnit, Mode=TwoWay}" />
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
                 <ui:TextBlock FontTypography="Subtitle" Text="On absence — alert" Margin="0,12,0,4" />
@@ -136,6 +212,17 @@
                 </Grid>
             </StackPanel>
         </DataTemplate>
+
+        <!-- Add-rule menu (templates + blanks) -->
+        <ContextMenu x:Key="AddRuleMenu">
+            <MenuItem Header="Suppress noisy successes" Tag="template:suppress-success" Click="OnAddRuleMenu" />
+            <MenuItem Header="Pair problem ↔ resolved" Tag="template:pair-problem-resolved" Click="OnAddRuleMenu" />
+            <MenuItem Header="Heartbeat (alert if it stops)" Tag="template:heartbeat" Click="OnAddRuleMenu" />
+            <Separator />
+            <MenuItem Header="Blank match rule" Tag="blank:Match" Click="OnAddRuleMenu" />
+            <MenuItem Header="Blank correlate rule" Tag="blank:Correlate" Click="OnAddRuleMenu" />
+            <MenuItem Header="Blank expect rule" Tag="blank:Expect" Click="OnAddRuleMenu" />
+        </ContextMenu>
     </ui:FluentWindow.Resources>
 
     <Grid>
@@ -150,7 +237,7 @@
 
         <Grid Grid.Row="1" Margin="16,8,16,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="270" />
                 <ColumnDefinition Width="12" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
@@ -164,7 +251,8 @@
                     <ui:Button Content="Delete" Margin="6,0,0,0" Appearance="Secondary" Click="OnDeletePack" />
                 </StackPanel>
                 <Border BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="4">
-                    <ListBox ItemsSource="{Binding Packs}" SelectedItem="{Binding SelectedPack, Mode=TwoWay}">
+                    <ListBox ItemsSource="{Binding Packs}" SelectedItem="{Binding SelectedPack, Mode=TwoWay}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate DataType="{x:Type editor:PackViewModel}">
                                 <StackPanel Orientation="Horizontal">
@@ -182,103 +270,104 @@
                 </Border>
             </DockPanel>
 
-            <!-- RIGHT: selected pack detail -->
+            <!-- RIGHT: empty state + selected pack detail -->
             <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+                <ui:TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
+                              Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                              Visibility="{Binding SelectedPack, Converter={StaticResource NullToVis}, ConverterParameter=Invert}"
+                              Text="Select a pack on the left, or create one." />
 
-                <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <ui:TextBox Grid.Column="0" PlaceholderText="Pack name"
-                                Text="{Binding SelectedPack.Name, UpdateSourceTrigger=PropertyChanged}" />
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
-                        <ui:TextBlock VerticalAlignment="Center" Text="Enabled" Margin="0,0,8,0" />
-                        <ui:ToggleSwitch IsChecked="{Binding SelectedPack.Enabled, Mode=TwoWay}" />
+                <Grid Visibility="{Binding SelectedPack, Converter={StaticResource NullToVis}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ui:TextBox Grid.Column="0" PlaceholderText="Pack name"
+                                    Text="{Binding SelectedPack.Name, UpdateSourceTrigger=PropertyChanged}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                            <ui:TextBlock VerticalAlignment="Center" Text="Enabled" Margin="0,0,8,0" />
+                            <ui:ToggleSwitch IsChecked="{Binding SelectedPack.Enabled, Mode=TwoWay}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,6">
+                        <ui:TextBlock VerticalAlignment="Center" FontTypography="Subtitle" Text="Rules" />
+                        <ui:Button Content="Add rule ▾" Margin="12,0,0,0" Click="OnAddRuleClicked" />
+                        <ui:Button Content="Delete rule" Margin="6,0,0,0" Appearance="Secondary" Click="OnDeleteRule" />
                     </StackPanel>
-                </Grid>
 
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,6">
-                    <ui:TextBlock VerticalAlignment="Center" FontTypography="Subtitle" Text="Rules" />
-                    <ui:Button Content="+ Match" Margin="12,0,0,0" Tag="Match" Click="OnAddRule" />
-                    <ui:Button Content="+ Correlate" Margin="6,0,0,0" Tag="Correlate" Click="OnAddRule" />
-                    <ui:Button Content="+ Expect" Margin="6,0,0,0" Tag="Expect" Click="OnAddRule" />
-                    <ui:Button Content="Delete rule" Margin="6,0,0,0" Appearance="Secondary" Click="OnDeleteRule" />
-                </StackPanel>
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="300" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                <Grid Grid.Row="2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="300" />
-                        <ColumnDefinition Width="12" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <Border Grid.Column="0" BorderBrush="{DynamicResource ControlElevationBorderBrush}"
-                            BorderThickness="1" CornerRadius="4">
-                        <ListBox ItemsSource="{Binding SelectedPack.Rules}" SelectedItem="{Binding SelectedRule, Mode=TwoWay}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate DataType="{x:Type editor:RuleViewModel}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <CheckBox IsChecked="{Binding Enabled}" VerticalAlignment="Top" />
-                                        <StackPanel Margin="6,0,0,0">
-                                            <Border Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                                    CornerRadius="3" Padding="6,1" HorizontalAlignment="Left">
-                                                <ui:TextBlock FontTypography="Caption" Text="{Binding Kind}" />
-                                            </Border>
-                                            <ui:TextBlock TextWrapping="Wrap" MaxWidth="220" Margin="0,2,0,0"
-                                                          Text="{Binding Summary}" />
+                        <Border Grid.Column="0" BorderBrush="{DynamicResource ControlElevationBorderBrush}"
+                                BorderThickness="1" CornerRadius="4">
+                            <ListBox ItemsSource="{Binding SelectedPack.Rules}" SelectedItem="{Binding SelectedRule, Mode=TwoWay}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type editor:RuleViewModel}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <CheckBox IsChecked="{Binding Enabled}" VerticalAlignment="Top" />
+                                            <StackPanel Margin="6,0,0,0">
+                                                <Border Background="{DynamicResource SubtleFillColorTertiaryBrush}"
+                                                        CornerRadius="3" Padding="6,1" HorizontalAlignment="Left">
+                                                    <ui:TextBlock FontTypography="Caption" Text="{Binding Kind}" />
+                                                </Border>
+                                                <ui:TextBlock TextWrapping="Wrap" MaxWidth="230" Margin="0,2,0,0"
+                                                              Text="{Binding Summary}" />
+                                            </StackPanel>
                                         </StackPanel>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
 
-                    <Border Grid.Column="2" BorderBrush="{DynamicResource ControlElevationBorderBrush}"
-                            BorderThickness="1" CornerRadius="4" Padding="12">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <ContentControl Content="{Binding SelectedRule}" />
-                        </ScrollViewer>
-                    </Border>
+                        <Border Grid.Column="2" BorderBrush="{DynamicResource ControlElevationBorderBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="0" ClipToBounds="True">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ContentControl Content="{Binding SelectedRule}" Margin="12" />
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
                 </Grid>
             </Grid>
         </Grid>
 
-        <!-- Preview + scope -->
-        <Grid Grid.Row="2" Margin="16,12,16,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-                <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{Binding PreviewSummary}" />
-                <ItemsControl ItemsSource="{Binding PreviewResults}" MaxHeight="90">
-                    <ItemsControl.Template>
-                        <ControlTemplate>
-                            <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsPresenter /></ScrollViewer>
-                        </ControlTemplate>
-                    </ItemsControl.Template>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <ui:TextBlock FontTypography="Caption" Text="{Binding Message.DisplayTitle}" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
-                <ComboBox Width="150" ItemsSource="{Binding Topics}" DisplayMemberPath="Name"
-                          SelectedItem="{Binding SelectedScopeTopic, Mode=TwoWay}" />
-                <ComboBox Width="80" Margin="6,0,0,0" ItemsSource="{Binding ScopeCounts}"
-                          SelectedItem="{Binding ScopeCount, Mode=TwoWay}" />
-                <ui:Button Content="Preview" Margin="6,0,0,0" Click="OnPreview" />
-                <ui:Button Content="Apply" Margin="6,0,0,0" Appearance="Secondary" Click="OnApply" />
-            </StackPanel>
-        </Grid>
+        <!-- Test this pack against history (only when a pack is selected) -->
+        <Border Grid.Row="2" Margin="16,12,16,0" Padding="12,8"
+                Background="{DynamicResource SubtleFillColorSecondaryBrush}" CornerRadius="6"
+                Visibility="{Binding SelectedPack, Converter={StaticResource NullToVis}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ui:TextBlock Grid.Column="0" VerticalAlignment="Center" Text="Test against" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <ComboBox Width="160" ItemsSource="{Binding Topics}" DisplayMemberPath="Name"
+                              SelectedItem="{Binding SelectedScopeTopic, Mode=TwoWay}" />
+                    <ui:TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Text="last" />
+                    <ComboBox Width="80" Margin="8,0,0,0" ItemsSource="{Binding ScopeCounts}"
+                              SelectedItem="{Binding ScopeCount, Mode=TwoWay}" />
+                    <ui:TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Text="messages" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ui:Button Content="Preview…" Icon="{ui:SymbolIcon Eye24}" Click="OnPreview" />
+                    <ui:Button Content="Apply to history" Margin="8,0,0,0" Appearance="Secondary" Click="OnApply" />
+                </StackPanel>
+            </Grid>
+        </Border>
 
         <!-- Footer: error + save/cancel -->
         <Grid Grid.Row="3" Margin="16,12,16,16">
