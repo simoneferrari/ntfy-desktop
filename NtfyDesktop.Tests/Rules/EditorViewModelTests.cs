@@ -7,11 +7,19 @@ namespace NtfyDesktop.Tests.Rules;
 public class EditorViewModelTests
 {
     [Fact]
-    public void Matcher_BadRegex_FailsValidation()
+    public void Matcher_BadRegex_FailsValidation_InRegexMode()
     {
-        var vm = new MatcherViewModel { TitleRegex = "(" };
+        var vm = new MatcherViewModel { TitleMode = MatchMode.Regex, TitleRegex = "(" };
         Assert.False(vm.TryValidate(out var err));
         Assert.False(string.IsNullOrEmpty(err));
+    }
+
+    [Fact]
+    public void Matcher_BadRegex_InContainsMode_IsLiteralAndValid()
+    {
+        var vm = new MatcherViewModel { TitleMode = MatchMode.Contains, TitleRegex = "(" };
+        Assert.True(vm.TryValidate(out _));
+        Assert.Equal(@"\(", vm.ToModel().TitleRegex);
     }
 
     [Fact]
@@ -31,15 +39,37 @@ public class EditorViewModelTests
     [Fact]
     public void ExpectRule_MissingTitle_FailsValidation()
     {
-        var vm = new ExpectRuleViewModel { Id = "e", Every = "26h", AbsenceTitle = "" };
+        var vm = new ExpectRuleViewModel { Id = "e", EveryAmount = 26, EveryUnit = DurationUnit.Hours, AbsenceTitle = "" };
         Assert.False(vm.TryValidate(out _));
     }
 
     [Fact]
-    public void ExpectRule_BadDuration_FailsValidation()
+    public void ExpectRule_DurationUnit_BuildsTimeSpan()
     {
-        var vm = new ExpectRuleViewModel { Id = "e", Every = "nope", AbsenceTitle = "x" };
-        Assert.False(vm.TryValidate(out _));
+        var vm = new ExpectRuleViewModel
+        {
+            Id = "e", EveryAmount = 26, EveryUnit = DurationUnit.Hours,
+            GraceAmount = 30, GraceUnit = DurationUnit.Minutes, AbsenceTitle = "x",
+        };
+        var model = vm.ToModel();
+        Assert.Equal(TimeSpan.FromHours(26), model.Every);
+        Assert.Equal(TimeSpan.FromMinutes(30), model.Grace);
+    }
+
+    [Fact]
+    public void Matcher_ContainsMode_EscapesToLiteralRegex()
+    {
+        var vm = new MatcherViewModel { TitleMode = MatchMode.Contains, TitleRegex = "Backup (v2)" };
+        Assert.Equal(@"Backup\ \(v2\)", vm.ToModel().TitleRegex);
+    }
+
+    [Fact]
+    public void Template_Heartbeat_ProducesValidExpectRule()
+    {
+        var rule = Assert.IsType<ExpectRuleViewModel>(RuleTemplates.Create("heartbeat"));
+        Assert.False(string.IsNullOrEmpty(rule.Id));
+        Assert.True(rule.TryValidate(out _));
+        Assert.Equal(TimeSpan.FromHours(24), rule.ToModel().Every);
     }
 
     [Fact]

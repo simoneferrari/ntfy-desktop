@@ -8,15 +8,15 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
 {
     private readonly PackStore _store;
     private readonly RulePackHistoryService _history;
-    private readonly Func<IReadOnlyList<(Guid Id, string Name)>> _topicNames;
+    private readonly Func<IReadOnlyList<TopicInfo>> _topics;
 
     public RulePackManagerViewModel(
         PackStore store, RulePackHistoryService historyService,
-        Func<IReadOnlyList<(Guid, string)>> topicNames)
+        Func<IReadOnlyList<TopicInfo>> topics)
     {
         _store = store;
         _history = historyService;
-        _topicNames = topicNames;
+        _topics = topics;
         Reload();
     }
 
@@ -32,10 +32,8 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
     public ObservableCollection<TopicScope> Topics { get; } = [];
     [ObservableProperty] private TopicScope? _selectedScopeTopic;
 
-    // Bindable preview output (populated by Preview()).
-    public ObservableCollection<SimResult> PreviewResults { get; } = [];
-    public ObservableCollection<AbsenceWindow> PreviewAbsences { get; } = [];
-    [ObservableProperty] private string _previewSummary = "";
+    /// <summary>Topic choices for matcher dropdowns (raw ntfy name + a grouped label).</summary>
+    public ObservableCollection<TopicOption> TopicOptions { get; } = [];
 
     public void Reload()
     {
@@ -45,7 +43,14 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
 
         Topics.Clear();
         Topics.Add(new TopicScope(null, "All topics"));
-        foreach (var (id, name) in _topicNames()) Topics.Add(new TopicScope(id, name));
+        TopicOptions.Clear();
+        TopicOptions.Add(new TopicOption("", "(any topic)"));
+        foreach (var t in _topics())
+        {
+            Topics.Add(new TopicScope(t.Id, t.Display));
+            var label = string.IsNullOrWhiteSpace(t.Group) ? t.Display : $"{t.Group} / {t.Display}";
+            TopicOptions.Add(new TopicOption(t.Name, label));
+        }
         SelectedScopeTopic = Topics[0];
     }
 
@@ -77,6 +82,15 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
         SelectedRule = rule;
     }
 
+    /// <summary>Adds a pre-filled rule from a starter template (see <see cref="RuleTemplates"/>).</summary>
+    public void AddTemplate(string key)
+    {
+        if (SelectedPack is not { } p) return;
+        var rule = RuleTemplates.Create(key);
+        p.Rules.Add(rule);
+        SelectedRule = rule;
+    }
+
     public void DeleteSelectedRule()
     {
         if (SelectedPack is { } p && SelectedRule is { } r) { p.Rules.Remove(r); SelectedRule = null; }
@@ -102,18 +116,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
         if (SelectedPack is not { } p) return null;
         if (!p.TryValidate(out var err)) { ErrorText = err; return null; }
         ErrorText = "";
-
-        var report = _history.Preview(p.ToModel(), SelectedScopeTopic?.Id, ScopeCount);
-
-        PreviewResults.Clear();
-        foreach (var r in report.Results.Where(r => r.Hidden || r.OpensIncident || r.Tags.Count > 0))
-            PreviewResults.Add(r);
-        PreviewAbsences.Clear();
-        foreach (var a in report.Absences) PreviewAbsences.Add(a);
-
-        var hidden = report.Results.Count(r => r.Hidden);
-        PreviewSummary = $"{hidden} hidden, {report.Absences.Count} absence window(s) over {report.Results.Count} message(s).";
-        return report;
+        return _history.Preview(p.ToModel(), SelectedScopeTopic?.Id, ScopeCount);
     }
 
     public ApplyOutcome? Apply()
@@ -125,4 +128,11 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
     }
 }
 
+/// <summary>Topic data the manager needs: stable id, raw ntfy name, friendly display, and group.</summary>
+public sealed record TopicInfo(Guid Id, string Name, string Display, string? Group);
+
+/// <summary>A preview-scope choice (null id = all topics).</summary>
 public sealed record TopicScope(Guid? Id, string Name);
+
+/// <summary>A matcher topic choice: the raw ntfy name (empty = any) with a grouped label.</summary>
+public sealed record TopicOption(string Name, string Label);

@@ -12,7 +12,7 @@ public class RulePackManagerViewModelTests : IDisposable
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
     private RulePackManagerViewModel NewVm() =>
-        new(new PackStore(_dir), historyService: null!, topicNames: () => []);
+        new(new PackStore(_dir), historyService: null!, topics: () => []);
 
     [Fact]
     public void AddRule_MintsId_AndAddsToSelectedPack()

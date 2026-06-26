@@ -59,7 +59,9 @@ public static class RulesFeature
                 return new Editor.RulePackManagerViewModel(
                     sp.GetRequiredService<PackStore>(),
                     sp.GetRequiredService<RulePackHistoryService>(),
-                    () => settings.Topics.Select(t => (t.Id, t.EffectiveDisplayName)).ToList());
+                    () => settings.Topics
+                        .Select(t => new Editor.TopicInfo(t.Id, t.Name, t.EffectiveDisplayName, t.GroupName))
+                        .ToList());
             });
         }
     }
