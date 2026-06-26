@@ -20,6 +20,8 @@ public static class RulesFeature
 
             services.AddSingleton<RuleEngine>();
 
+            services.AddSingleton<RulePackHistoryService>();
+
             services.AddSingleton<ExpectationStore>(sp => new ExpectationStore(
                 Path.Combine(App.DataPath, "rules.db"),
                 sp.GetRequiredService<AppSettings>().GetOrCreateHistoryKey()));
