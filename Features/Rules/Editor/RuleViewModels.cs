@@ -63,6 +63,8 @@ public sealed partial class CorrelateRuleViewModel : RuleViewModel
     [ObservableProperty] private KeyField _keyFrom = KeyField.Body;
     [ObservableProperty] private string _keyRegex = "";
 
+    public static IReadOnlyList<KeyField> KeyFields { get; } = [KeyField.Title, KeyField.Body];
+
     public static CorrelateRuleViewModel FromModel(CorrelateRule c) => new()
     {
         Id = c.Id, Enabled = c.Enabled,

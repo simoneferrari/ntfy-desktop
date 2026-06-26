@@ -346,15 +346,15 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
-                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Draft rules with AI" />
-                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Generate a rule pack from sample messages. Save your endpoint settings first." />
+                            <ui:TextBlock Style="{StaticResource RowTitle}" Text="Rule packs" />
+                            <ui:TextBlock Style="{StaticResource RowDescription}" Text="Browse, create, edit, enable/disable, preview and apply rule packs — or draft one with AI." />
                         </StackPanel>
                         <ui:Button Grid.Column="1"
                                    Appearance="Secondary"
                                    VerticalAlignment="Center"
-                                   Icon="{ui:SymbolIcon Sparkle24}"
-                                   Content="Draft rules with AI…"
-                                   Click="OnDraftRulesClicked" />
+                                   Icon="{ui:SymbolIcon Filter24}"
+                                   Content="Manage rule packs…"
+                                   Click="OnManagePacksClicked" />
                     </Grid>
                 </Border>
 
