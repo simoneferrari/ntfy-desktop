@@ -4,10 +4,10 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:editor="clr-namespace:NtfyDesktop.Features.Rules.Editor"
                  Title="Manage rule packs"
-                 Width="960"
-                 Height="700"
-                 MinWidth="800"
-                 MinHeight="540"
+                 Width="1180"
+                 Height="720"
+                 MinWidth="960"
+                 MinHeight="560"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
@@ -357,9 +357,9 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
                     <ComboBox Width="160" ItemsSource="{Binding Topics}" DisplayMemberPath="Name"
                               SelectedItem="{Binding SelectedScopeTopic, Mode=TwoWay}" />
-                    <ui:TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Text="last" />
-                    <ComboBox Width="80" Margin="8,0,0,0" ItemsSource="{Binding ScopeCounts}"
-                              SelectedItem="{Binding ScopeCount, Mode=TwoWay}" />
+                    <ui:TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Text="·" />
+                    <ComboBox Width="110" Margin="8,0,0,0" ItemsSource="{Binding ScopeChoices}" DisplayMemberPath="Label"
+                              SelectedItem="{Binding SelectedScope, Mode=TwoWay}" />
                     <ui:TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Text="messages" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -369,15 +369,22 @@
             </Grid>
         </Border>
 
-        <!-- Footer: error + save/cancel -->
+        <!-- Footer: status/error + apply/save/cancel -->
         <Grid Grid.Row="3" Margin="16,12,16,16">
-            <ui:TextBlock HorizontalAlignment="Left" VerticalAlignment="Center"
-                          TextWrapping="Wrap"
-                          Foreground="{DynamicResource SystemFillColorCriticalBrush}"
-                          Text="{Binding ErrorText}" />
+            <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center">
+                <ui:TextBlock TextWrapping="Wrap"
+                              Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                              Text="{Binding ErrorText}" />
+                <ui:TextBlock TextWrapping="Wrap"
+                              Foreground="{DynamicResource SystemFillColorSuccessBrush}"
+                              Text="{Binding StatusText}" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button Content="Apply" Margin="0,0,8,0" Click="OnApplyChanges"
+                           ToolTip="Save changes and keep this window open" />
                 <ui:Button Content="Cancel" Margin="0,0,8,0" Click="OnCancel" />
-                <ui:Button Content="Save" Appearance="Primary" Click="OnSave" />
+                <ui:Button Content="Save" Appearance="Primary" Click="OnSave"
+                           ToolTip="Save changes and close" />
             </StackPanel>
         </Grid>
     </Grid>

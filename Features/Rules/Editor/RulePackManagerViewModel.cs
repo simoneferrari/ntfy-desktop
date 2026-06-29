@@ -17,17 +17,24 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
         _store = store;
         _history = historyService;
         _topics = topics;
+        SelectedScope = ScopeChoices[0];
         Reload();
     }
+
+    private int ScopeLimit => SelectedScope?.Limit ?? int.MaxValue;
 
     public ObservableCollection<PackViewModel> Packs { get; } = [];
 
     [ObservableProperty] private PackViewModel? _selectedPack;
     [ObservableProperty] private RuleViewModel? _selectedRule;
     [ObservableProperty] private string _errorText = "";
+    [ObservableProperty] private string _statusText = "";
 
-    public IReadOnlyList<int> ScopeCounts { get; } = [50, 200, 1000];
-    [ObservableProperty] private int _scopeCount = 200;
+    /// <summary>How much history preview/apply cover. "All" (the default) makes the preview
+    /// count exactly match what Apply commits.</summary>
+    public IReadOnlyList<ScopeChoice> ScopeChoices { get; } =
+        [new("All", int.MaxValue), new("Last 1000", 1000), new("Last 200", 200), new("Last 50", 50)];
+    [ObservableProperty] private ScopeChoice? _selectedScope;
 
     public ObservableCollection<TopicScope> Topics { get; } = [];
     [ObservableProperty] private TopicScope? _selectedScopeTopic;
@@ -99,7 +106,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
     public bool Save()
     {
         foreach (var p in Packs)
-            if (!p.TryValidate(out var err)) { ErrorText = $"“{p.Name}”: {err}"; return false; }
+            if (!p.TryValidate(out var err)) { ErrorText = $"“{p.Name}”: {err}"; StatusText = ""; return false; }
 
         foreach (var p in Packs)
         {
@@ -108,6 +115,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
             else p.FilePath = _store.Save(p.Name, json);
         }
         ErrorText = "";
+        StatusText = $"All changes saved ({Packs.Count} pack(s)).";
         return true;
     }
 
@@ -116,7 +124,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
         if (SelectedPack is not { } p) return null;
         if (!p.TryValidate(out var err)) { ErrorText = err; return null; }
         ErrorText = "";
-        return _history.Preview(p.ToModel(), SelectedScopeTopic?.Id, ScopeCount);
+        return _history.Preview(p.ToModel(), SelectedScopeTopic?.Id, ScopeLimit);
     }
 
     public ApplyOutcome? Apply()
@@ -124,7 +132,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
         if (SelectedPack is not { } p) return null;
         if (!p.TryValidate(out var err)) { ErrorText = err; return null; }
         ErrorText = "";
-        return _history.Apply(p.ToModel(), SelectedScopeTopic?.Id, ScopeCount);
+        return _history.Apply(p.ToModel(), SelectedScopeTopic?.Id, ScopeLimit);
     }
 }
 
@@ -136,3 +144,6 @@ public sealed record TopicScope(Guid? Id, string Name);
 
 /// <summary>A matcher topic choice: the raw ntfy name (empty = any) with a grouped label.</summary>
 public sealed record TopicOption(string Name, string Label);
+
+/// <summary>How much history preview/apply cover (label + a Query row limit).</summary>
+public sealed record ScopeChoice(string Label, int Limit);

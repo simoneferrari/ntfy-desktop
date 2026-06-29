@@ -96,7 +96,7 @@ public partial class RulePackManagerWindow
     {
         var report = _vm.Preview();
         if (report is null || _vm.SelectedPack is null) return;
-        var scope = $"{_vm.SelectedScopeTopic?.Name ?? "All topics"}, last {_vm.ScopeCount}";
+        var scope = $"{_vm.SelectedScopeTopic?.Name ?? "All topics"} · {_vm.SelectedScope?.Label ?? "All"}";
         new RulePreviewWindow(report, _vm.SelectedPack.Name, scope) { Owner = this }.ShowDialog();
     }
 
@@ -106,18 +106,35 @@ public partial class RulePackManagerWindow
         if (preview is null || _vm.SelectedPack is null) return;
 
         var hidden = preview.Results.Count(r => r.Hidden);
+        var topic = _vm.SelectedScopeTopic?.Name ?? "all topics";
         var confirm = new Wpf.Ui.Controls.MessageBox
         {
             Title = "Apply to history",
-            Content = $"This will hide {hidden} message(s) from the feed for “{_vm.SelectedPack.Name}”. " +
+            Content = $"Scanning {preview.Results.Count} stored message(s) for “{_vm.SelectedPack.Name}” ({topic}, " +
+                      $"{_vm.SelectedScope?.Label ?? "All"}): this will hide {hidden} of them from the feed. " +
                       "This can’t be automatically undone. Apply?",
             PrimaryButtonText = "Apply",
             CloseButtonText = "Cancel",
         };
         if (await confirm.ShowDialogAsync() != Wpf.Ui.Controls.MessageBoxResult.Primary) return;
-        _vm.Apply();
+
+        var outcome = _vm.Apply();
+        if (outcome is { } o)
+        {
+            await new Wpf.Ui.Controls.MessageBox
+            {
+                Title = "Applied",
+                Content = $"Hid {o.HiddenCount} message(s) from the feed" +
+                          (o.FoldedCount > 0 ? $" ({o.FoldedCount} folded with their problem)" : "") + ".",
+                CloseButtonText = "OK",
+            }.ShowDialogAsync();
+        }
     }
 
+    // "Apply" footer button — save changes but keep the window open.
+    private void OnApplyChanges(object sender, RoutedEventArgs e) => _vm.Save();
+
+    // "Save" footer button — save changes and close.
     private void OnSave(object sender, RoutedEventArgs e)
     {
         if (_vm.Save()) Close();
