@@ -35,10 +35,19 @@ internal static class MarkdownRenderer
     /// Builds the rendered block elements for a markdown body. Returns an empty list for
     /// null/blank input.
     /// </summary>
-    public static List<UIElement> Render(string? text)
+    /// <summary>
+    /// Builds a FlowDocument twin of the renderer, for hosting in a RichTextBox so the
+    /// message body supports native text selection. Reuses the same inline/fence parsing so
+    /// links, emphasis, code spans, and escaping stay in lockstep.
+    /// </summary>
+    public static FlowDocument RenderFlowDocument(string? text)
     {
-        var blocks = new List<UIElement>();
-        if (string.IsNullOrEmpty(text)) return blocks;
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(0),
+        };
+
+        if (string.IsNullOrEmpty(text)) return doc;
 
         var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
 
@@ -47,32 +56,39 @@ internal static class MarkdownRenderer
         {
             var line = lines[i];
 
-            // Blank line — paragraph separator; nothing to emit on its own.
             if (line.Trim().Length == 0) { i++; continue; }
 
+            Block block;
             if (TryFenceMarker(line, out var fence))
             {
-                // Fenced code block: everything up to the matching closing fence is literal.
                 var code = new List<string>();
                 i++;
                 while (i < lines.Length && !TryFenceMarker(lines[i], out _, fence))
                     code.Add(lines[i++]);
-                if (i < lines.Length) i++; // consume the closing fence (if present)
+                if (i < lines.Length) i++;
 
-                AddBlock(blocks, CodeBlock(string.Join("\n", code)));
-                continue;
+                block = CodeBlockParagraph(string.Join("\n", code));
+            }
+            else
+            {
+                var para = new List<string>();
+                while (i < lines.Length && lines[i].Trim().Length > 0 && !TryFenceMarker(lines[i], out _))
+                    para.Add(lines[i++]);
+
+                block = ParagraphBlock(para);
             }
 
-            // Paragraph: consecutive non-blank, non-fence lines. Soft newlines inside become
-            // line breaks (intuitive for short notification bodies).
-            var para = new List<string>();
-            while (i < lines.Length && lines[i].Trim().Length > 0 && !TryFenceMarker(lines[i], out _))
-                para.Add(lines[i++]);
+            // Align spacing exactly with the original TextBlock margins:
+            // First block has no top margin; subsequent blocks are spaced by BlockSpacing.
+            if (doc.Blocks.Count > 0)
+                block.Margin = new Thickness(0, BlockSpacing, 0, 0);
+            else
+                block.Margin = new Thickness(0);
 
-            AddBlock(blocks, Paragraph(para));
+            doc.Blocks.Add(block);
         }
 
-        return blocks;
+        return doc;
     }
 
     /// <summary>
@@ -152,46 +168,31 @@ internal static class MarkdownRenderer
         }
     }
 
-    private static void AddBlock(List<UIElement> blocks, FrameworkElement block)
+    private static Paragraph ParagraphBlock(List<string> lines)
     {
-        if (blocks.Count > 0) block.Margin = new Thickness(0, BlockSpacing, 0, 0);
-        blocks.Add(block);
-    }
-
-    private static TextBlock Paragraph(List<string> lines)
-    {
-        var tb = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, PrimaryTextBrush);
+        var paragraph = new Paragraph();
+        paragraph.SetResourceReference(TextElement.ForegroundProperty, PrimaryTextBrush);
 
         for (var k = 0; k < lines.Count; k++)
         {
-            if (k > 0) tb.Inlines.Add(new LineBreak());
+            if (k > 0) paragraph.Inlines.Add(new LineBreak());
             foreach (var inline in ParseInlines(lines[k]))
-                tb.Inlines.Add(inline);
+                paragraph.Inlines.Add(inline);
         }
 
-        return tb;
+        return paragraph;
     }
 
-    private static Border CodeBlock(string code)
+    private static Paragraph CodeBlockParagraph(string code)
     {
-        var tb = new TextBlock
+        var run = new Run(code) { FontFamily = MonoFont };
+        var paragraph = new Paragraph(run)
         {
-            Text = code,
-            FontFamily = MonoFont,
-            TextWrapping = TextWrapping.Wrap,
-        };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, PrimaryTextBrush);
-
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(4),
             Padding = new Thickness(8, 6, 8, 6),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Child = tb,
         };
-        border.SetResourceReference(Border.BackgroundProperty, CodeBackgroundBrush);
-        return border;
+        paragraph.SetResourceReference(Paragraph.BackgroundProperty, CodeBackgroundBrush);
+        paragraph.SetResourceReference(TextElement.ForegroundProperty, PrimaryTextBrush);
+        return paragraph;
     }
 
     // ===== Inline parsing =====
