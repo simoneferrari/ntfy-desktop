@@ -25,16 +25,16 @@
             <Setter Property="Padding" Value="0,14,0,14" />
         </Style>
 
-        <Style x:Key="SectionTitle" TargetType="ui:TextBlock">
+        <Style x:Key="SectionTitle" TargetType="ui:TextBlock" BasedOn="{StaticResource {x:Type ui:TextBlock}}">
             <Setter Property="FontTypography" Value="BodyStrong" />
             <Setter Property="Margin" Value="0,28,0,4" />
         </Style>
 
-        <Style x:Key="RowTitle" TargetType="ui:TextBlock">
+        <Style x:Key="RowTitle" TargetType="ui:TextBlock" BasedOn="{StaticResource {x:Type ui:TextBlock}}">
             <Setter Property="FontTypography" Value="Body" />
         </Style>
 
-        <Style x:Key="RowDescription" TargetType="ui:TextBlock">
+        <Style x:Key="RowDescription" TargetType="ui:TextBlock" BasedOn="{StaticResource {x:Type ui:TextBlock}}">
             <Setter Property="FontTypography" Value="Caption" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
             <Setter Property="Margin" Value="0,2,0,0" />
