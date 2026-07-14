@@ -8,8 +8,8 @@ namespace NtfyDesktop.Features.Feed.Markdown;
 
 /// <summary>
 /// Attached properties that fill a <see cref="Panel"/> (the feed row's body host) with a
-/// message body: a single wrapping <see cref="TextBlock"/> for plain text, or the rendered
-/// block elements from <see cref="MarkdownRenderer"/> when <see cref="IsMarkdownProperty"/>
+/// message body: a single wrapping selectable <see cref="TextBox"/> for plain text, or the rendered
+/// FlowDocument inside a copy-selectable <see cref="RichTextBox"/> from <see cref="MarkdownRenderer"/> when <see cref="IsMarkdownProperty"/>
 /// is set. Re-renders whenever either property changes — including when a virtualized row
 /// recycles onto a new message (its DataContext changes and both bindings re-evaluate).
 /// </summary>
@@ -120,7 +120,6 @@ public static class MarkdownBody
                     Clipboard.SetText(box.SelectedText);
                 e.Handled = true;
             }));
-
             panel.Children.Add(tb);
         }
     }
