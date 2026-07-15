@@ -130,16 +130,20 @@ internal static class MarkdownRenderer
                 block = ParagraphBlock(para);
             }
 
-            // Align spacing exactly with the original TextBlock margins:
-            // First block has no top margin; subsequent blocks are spaced by BlockSpacing.
-            if (doc.Blocks.Count > 0)
+            // Space blocks apart. Blocks that carry their own top margin (headings, lists,
+            // rules, tables, blockquotes) keep it; the ones that don't (paragraphs, code
+            // blocks) get the default BlockSpacing. WPF collapses adjacent block margins,
+            // so this yields tight lists but comfortable gaps between paragraphs.
+            if (doc.Blocks.Count == 0)
             {
-                var currentMargin = block.Margin;
-                block.Margin = new Thickness(currentMargin.Left, BlockSpacing, currentMargin.Right, currentMargin.Bottom);
+                // First block sits flush with the row top.
+                var m = block.Margin;
+                block.Margin = new Thickness(m.Left, 0, m.Right, m.Bottom);
             }
-            else
+            else if (block.Margin.Top == 0)
             {
-                // Leave base margins alone
+                var m = block.Margin;
+                block.Margin = new Thickness(m.Left, BlockSpacing, m.Right, m.Bottom);
             }
 
             doc.Blocks.Add(block);
