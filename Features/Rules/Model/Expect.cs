@@ -17,4 +17,7 @@ public sealed record ExpectRule(
     TimeSpan Every,
     TimeSpan Grace,
     AlertSpec OnAbsence,
-    AlertSpec? OnRecovery);
+    AlertSpec? OnRecovery)
+{
+    public bool Enabled { get; init; } = true;
+}

@@ -37,13 +37,13 @@ public partial class SettingsPage : Page
         _vm.AiApiKey = AiKeyBox.Password;
     }
 
-    private void OnDraftRulesClicked(object sender, RoutedEventArgs e)
+    private void OnManagePacksClicked(object sender, RoutedEventArgs e)
     {
         try
         {
-            var vm = App.Services.GetRequiredService<DraftRulesViewModel>();
-            var dialog = new DraftRulesDialog(vm, topicId: null) { Owner = Window.GetWindow(this) };
-            dialog.ShowDialog();
+            var vm = App.Services.GetRequiredService<Features.Rules.Editor.RulePackManagerViewModel>();
+            var window = new Features.Rules.Editor.RulePackManagerWindow(vm) { Owner = Window.GetWindow(this) };
+            window.ShowDialog();
         }
         catch (Exception ex)
         {

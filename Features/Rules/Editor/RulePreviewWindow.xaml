@@ -1,0 +1,83 @@
+<ui:FluentWindow x:Class="NtfyDesktop.Features.Rules.Editor.RulePreviewWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="Preview"
+                 Width="640"
+                 Height="600"
+                 MinWidth="480"
+                 MinHeight="380"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="None"
+                 ResizeMode="CanResize"
+                 ShowInTaskbar="False">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Preview" />
+
+        <!-- Summary header -->
+        <StackPanel Grid.Row="1" Margin="20,8,20,12">
+            <ui:TextBlock x:Name="HeaderText" FontTypography="Subtitle" TextWrapping="Wrap" />
+            <ui:TextBlock x:Name="ScopeText" FontTypography="Caption"
+                          Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,2,0,0" />
+        </StackPanel>
+
+        <!-- Affected messages -->
+        <Border Grid.Row="2" Margin="20,0,20,0"
+                BorderBrush="{DynamicResource ControlElevationBorderBrush}" BorderThickness="1" CornerRadius="6"
+                Padding="0" ClipToBounds="True">
+            <Grid>
+                <ui:TextBlock x:Name="EmptyText" Margin="16" VerticalAlignment="Top"
+                              Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                              Text="No messages in this scope would be affected by this pack." />
+                <ListBox x:Name="RowList" Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="4,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" VerticalAlignment="Top" HorizontalAlignment="Left"
+                                        Background="{Binding AccentBrush}" CornerRadius="4" Padding="8,2" Margin="0,1,0,0">
+                                    <ui:TextBlock FontTypography="Caption" Foreground="White" Text="{Binding Effect}" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                    <ui:TextBlock TextWrapping="Wrap" Text="{Binding Title}" />
+                                    <ui:TextBlock FontTypography="Caption"
+                                                  Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                  Text="{Binding Detail}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- Absence windows -->
+        <StackPanel Grid.Row="3" x:Name="AbsencePanel" Margin="20,12,20,0" Visibility="Collapsed">
+            <ui:TextBlock FontTypography="BodyStrong" Text="Heartbeat gaps that would alert" Margin="0,0,0,4" />
+            <ItemsControl x:Name="AbsenceList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <ui:TextBlock FontTypography="Caption" Margin="0,1" Text="{Binding}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,16,20,16">
+            <ui:Button Content="Close" Appearance="Primary" Click="OnClose" />
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

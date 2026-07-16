@@ -34,7 +34,15 @@ public sealed class RuleEngine
     public RuleVerdict Evaluate(NtfyMessage message)
     {
         if (!_settings.RulesEnabled) return RuleVerdict.PassThrough;
+        return EvaluateAgainst(message, _packsProvider(), _incidents);
+    }
 
+    /// <summary>Pure evaluation of a message against an explicit pack set + incident store,
+    /// with no <see cref="AppSettings.RulesEnabled"/> gate. Used by the live <see cref="Evaluate"/>
+    /// and by history preview/apply (which supply their own packs + incident store).</summary>
+    public static RuleVerdict EvaluateAgainst(
+        NtfyMessage message, IReadOnlyList<RulePack> packs, IIncidentStore incidents)
+    {
         var suppressToast = false;
         var hideFromFeed = false;
         var tags = new List<string>();
@@ -42,7 +50,7 @@ public sealed class RuleEngine
         (string RuleId, string Key)? closeIncident = null;
         string? dismissMessageId = null;
 
-        foreach (var pack in _packsProvider())
+        foreach (var pack in packs)
         {
             foreach (var rule in pack.MatchRules)
             {
@@ -75,7 +83,7 @@ public sealed class RuleEngine
                         // It still toasts (the "all good" signal), but both it and the
                         // original problem are hidden from the default feed.
                         var key = rule.Key.Extract(message);
-                        if (key is not null && _incidents.FindOpen(rule.Id, key) is { } incident)
+                        if (key is not null && incidents.FindOpen(rule.Id, key) is { } incident)
                         {
                             hideFromFeed = true;
                             closeIncident = (rule.Id, key);

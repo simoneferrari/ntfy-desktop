@@ -20,6 +20,8 @@ public static class RulesFeature
 
             services.AddSingleton<RuleEngine>();
 
+            services.AddSingleton<RulePackHistoryService>();
+
             services.AddSingleton<ExpectationStore>(sp => new ExpectationStore(
                 Path.Combine(App.DataPath, "rules.db"),
                 sp.GetRequiredService<AppSettings>().GetOrCreateHistoryKey()));
@@ -48,6 +50,19 @@ public static class RulesFeature
 
             services.AddSingleton<PackDraftService>();
             services.AddTransient<DraftRulesViewModel>();
+
+            // ===== Rule-pack manager (Phase 2) =====
+
+            services.AddTransient<Editor.RulePackManagerViewModel>(sp =>
+            {
+                var settings = sp.GetRequiredService<AppSettings>();
+                return new Editor.RulePackManagerViewModel(
+                    sp.GetRequiredService<PackStore>(),
+                    sp.GetRequiredService<RulePackHistoryService>(),
+                    () => settings.Topics
+                        .Select(t => new Editor.TopicInfo(t.Id, t.Name, t.EffectiveDisplayName, t.GroupName))
+                        .ToList());
+            });
         }
     }
 }

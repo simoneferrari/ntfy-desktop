@@ -17,6 +17,7 @@ public static class PackParser
         var root = doc.RootElement;
 
         var name = root.TryGetProperty("name", out var n) ? n.GetString() ?? "pack" : "pack";
+        var packEnabled = !root.TryGetProperty("enabled", out var pe) || pe.ValueKind != JsonValueKind.False;
 
         var matchRules = new List<MatchRule>();
         var correlateRules = new List<CorrelateRule>();
@@ -33,16 +34,18 @@ public static class PackParser
                     case "match":
                         matchRules.Add(new MatchRule(
                             ParseMatcher(rule, "when"),
-                            ParseActions(rule, "do")));
+                            ParseActions(rule, "do"))
+                            { Id = RuleIdentity(rule, name, index), Enabled = RuleEnabled(rule) });
                         break;
                     case "correlate":
                         // Folding behaviour is intrinsic; any "onClose" in the JSON is
                         // ignored (tolerated for forward/backward compatibility).
                         correlateRules.Add(new CorrelateRule(
-                            Id: $"{name}#{index}",
+                            Id: RuleIdentity(rule, name, index),
                             Open: ParseMatcher(rule, "open"),
                             Close: ParseMatcher(rule, "close"),
-                            Key: ParseKey(rule)));
+                            Key: ParseKey(rule))
+                            { Enabled = RuleEnabled(rule) });
                         break;
                     case "expect":
                         if (TryParseExpect(rule, name, index) is { } expect)
@@ -54,8 +57,15 @@ public static class PackParser
             }
         }
 
-        return new RulePack(name, matchRules, correlateRules, expectRules);
+        return new RulePack(name, matchRules, correlateRules, expectRules) { Enabled = packEnabled };
     }
+
+    private static bool RuleEnabled(JsonElement rule) =>
+        !rule.TryGetProperty("enabled", out var e) || e.ValueKind != JsonValueKind.False;
+
+    private static string RuleIdentity(JsonElement rule, string packName, int index) =>
+        rule.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } s
+            ? s : $"{packName}#{index}";
 
     private static ExpectRule? TryParseExpect(JsonElement rule, string packName, int index)
     {
@@ -67,12 +77,13 @@ public static class PackParser
         Duration.TryParse(Str(rule, "grace"), out var grace); // absent/invalid → Zero
 
         return new ExpectRule(
-            Id: $"{packName}#{index}",
+            Id: RuleIdentity(rule, packName, index),
             When: ParseMatcher(rule, "when"),
             Every: every,
             Grace: grace,
             OnAbsence: onAbsence,
-            OnRecovery: ParseAlert(rule, "onRecovery"));
+            OnRecovery: ParseAlert(rule, "onRecovery"))
+            { Enabled = RuleEnabled(rule) };
     }
 
     private static AlertSpec? ParseAlert(JsonElement rule, string property)

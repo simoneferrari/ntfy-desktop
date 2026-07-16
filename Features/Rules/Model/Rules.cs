@@ -1,7 +1,11 @@
 namespace NtfyDesktop.Features.Rules.Model;
 
 /// <summary>A straight pattern → actions rule.</summary>
-public sealed record MatchRule(Matcher When, IReadOnlyList<RuleAction> Actions);
+public sealed record MatchRule(Matcher When, IReadOnlyList<RuleAction> Actions)
+{
+    public string Id { get; init; } = "";
+    public bool Enabled { get; init; } = true;
+}
 
 /// <summary>
 /// Pairs an opening message with its resolving message via an extracted key.
@@ -14,10 +18,16 @@ public sealed record CorrelateRule(
     string Id,
     Matcher Open,
     Matcher Close,
-    KeySelector Key);
+    KeySelector Key)
+{
+    public bool Enabled { get; init; } = true;
+}
 
 public sealed record RulePack(
     string Name,
     IReadOnlyList<MatchRule> MatchRules,
     IReadOnlyList<CorrelateRule> CorrelateRules,
-    IReadOnlyList<ExpectRule> ExpectRules);
+    IReadOnlyList<ExpectRule> ExpectRules)
+{
+    public bool Enabled { get; init; } = true;
+}
