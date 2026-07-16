@@ -64,6 +64,49 @@ public class EditorViewModelTests
     }
 
     [Fact]
+    public void CorrelateKey_SimpleMode_BuildsLabelledNamedCapture()
+    {
+        var vm = new CorrelateRuleViewModel
+        {
+            Id = "c", KeyMode = KeyMode.Simple, KeyLabel = "Event ID:", KeyIdType = KeyIdType.Number,
+        };
+        Assert.Equal(@"Event\ ID:\s*(?<key>\d+)", vm.ToModel().Key.Regex);
+    }
+
+    [Fact]
+    public void CorrelateKey_SimpleMode_NoLabel_IsJustCapture()
+    {
+        var vm = new CorrelateRuleViewModel { Id = "c", KeyMode = KeyMode.Simple, KeyLabel = "", KeyIdType = KeyIdType.Word };
+        Assert.Equal(@"(?<key>\S+)", vm.ToModel().Key.Regex);
+    }
+
+    [Fact]
+    public void CorrelateKey_RegexMode_UsesRawPattern_AndValidates()
+    {
+        var vm = new CorrelateRuleViewModel { Id = "c", KeyMode = KeyMode.Regex, KeyRegex = @"REF-(?<key>\d+)" };
+        Assert.Equal(@"REF-(?<key>\d+)", vm.ToModel().Key.Regex);
+        Assert.True(vm.TryValidate(out _));
+    }
+
+    [Fact]
+    public void CorrelateKey_RegexMode_BadRegex_FailsValidation()
+    {
+        var vm = new CorrelateRuleViewModel { Id = "c", KeyMode = KeyMode.Regex, KeyRegex = "(?<key>" };
+        Assert.False(vm.TryValidate(out _));
+    }
+
+    [Fact]
+    public void Correlate_FromModel_ShowsRawRegexMode()
+    {
+        var model = new CorrelateRule("c",
+            new Matcher { TitleRegex = "^A" }, new Matcher { TitleRegex = "^B" },
+            new KeySelector { From = KeyField.Body, Regex = @"X(?<key>\d+)" });
+        var vm = CorrelateRuleViewModel.FromModel(model);
+        Assert.Equal(KeyMode.Regex, vm.KeyMode);
+        Assert.Equal(@"X(?<key>\d+)", vm.EffectiveKeyRegex());
+    }
+
+    [Fact]
     public void Template_Heartbeat_ProducesValidExpectRule()
     {
         var rule = Assert.IsType<ExpectRuleViewModel>(RuleTemplates.Create("heartbeat"));

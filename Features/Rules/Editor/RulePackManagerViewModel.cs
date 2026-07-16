@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using NtfyDesktop.Features.Rules.Model;
 
@@ -9,6 +10,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
     private readonly PackStore _store;
     private readonly RulePackHistoryService _history;
     private readonly Func<IReadOnlyList<TopicInfo>> _topics;
+    private readonly DispatcherTimer _statusTimer;
 
     public RulePackManagerViewModel(
         PackStore store, RulePackHistoryService historyService,
@@ -18,7 +20,19 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
         _history = historyService;
         _topics = topics;
         SelectedScope = ScopeChoices[0];
+
+        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _statusTimer.Tick += (_, _) => { StatusText = ""; _statusTimer.Stop(); };
+
         Reload();
+    }
+
+    /// <summary>Shows a transient status message that clears itself after a couple of seconds.</summary>
+    private void FlashStatus(string message)
+    {
+        StatusText = message;
+        _statusTimer.Stop();
+        _statusTimer.Start();
     }
 
     private int ScopeLimit => SelectedScope?.Limit ?? int.MaxValue;
@@ -115,7 +129,7 @@ public sealed partial class RulePackManagerViewModel : ObservableObject
             else p.FilePath = _store.Save(p.Name, json);
         }
         ErrorText = "";
-        StatusText = $"All changes saved ({Packs.Count} pack(s)).";
+        FlashStatus($"All changes saved ({Packs.Count} pack(s)).");
         return true;
     }
 

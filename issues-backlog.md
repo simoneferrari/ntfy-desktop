@@ -71,6 +71,22 @@ Refinements on the automatic-updates feature shipped in 0.7. Four related sub-it
 - **Tray check needs immediate feedback.** Checking for updates **from the tray** currently does nothing visible until a version is found (banner on the main window or a Windows toast) — if you're up to date, it looks like nothing happened. Show instant feedback when the check *starts* ("Checking for updates…") and an explicit **"You're up to date"** result, not just the success-case banner.
 - **Download-progress redesign.** The current download-progress design isn't liked; prefer a **shorter and taller** treatment. Exact design **TBD at implementation**.
 
+### Rule-pack manager — deferred polish (revisit with pack import/sharing)
+
+Follow-ups consciously left out of the 0.75 Phase 2 rule-pack manager; most only start to
+matter once packs can be **imported/shared** (the rule-engine design's "community pack library"
+future item, adjacent to 0.9 Settings import/export):
+
+- **No unsaved-changes guard.** The manager window's **Cancel**/**Save** (and the window close
+  button) discard in-memory edits with no "you have unsaved changes" prompt — there's no
+  dirty-tracking. Low risk while editing is deliberate; add a confirm-on-close if it bites. The
+  new **Apply** button (save without closing) mitigates accidental loss.
+- **Matcher topic dropdown lists only subscribed topics.** A rule targeting a topic you're not
+  subscribed to (e.g. an imported pack) has no matching dropdown entry, so the grouped-topic
+  `ComboBox`'s `SelectedValue` can't display it (the raw value is still preserved on the model).
+  Fine today because every pack is authored locally against subscribed topics; revisit when
+  importing packs authored elsewhere, e.g. allow a free-text/custom topic entry.
+
 ### Windows Focus Assist integration
 
 - `Windows.UI.Notifications.Management.UserNotificationListener` — needs a user permission grant.
