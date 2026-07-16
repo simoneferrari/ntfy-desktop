@@ -152,7 +152,7 @@ Planned, in rough order. Open an issue if you'd like to discuss priorities or pr
 
 **0.9 — Quality-of-life & polish**
 - [ ] Mark all as read — clear unread state in bulk, per topic and across all topics
-- [ ] Selectable message text in the feed (select and copy a message body)
+- [x] Selectable message text in the feed (select and copy a message body)
 - [ ] Settings import/export
 - [ ] Update-experience polish — a manual "check for updates" in the main-window title bar, immediate feedback when checking from the tray, a more frequent background check, and a refined download-progress design
 - [x] Unread/read state with per-topic and All-topics badges in the rail *(shipped early)*

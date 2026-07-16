@@ -106,11 +106,13 @@
                         MaxWidth="380"
                         Margin="0,0,32,0"
                         Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}">
-                <ui:SymbolIcon Symbol="Mail24"
+                <ui:SymbolIcon Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Symbol="Mail24"
                                FontSize="48"
                                Opacity="0.30"
                                HorizontalAlignment="Center" />
-                <ui:TextBlock Margin="0,12,0,4"
+                <ui:TextBlock Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                Margin="0,12,0,4"
                               FontTypography="Subtitle"
                               HorizontalAlignment="Center"
                               Text="No notifications" />

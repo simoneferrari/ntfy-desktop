@@ -38,6 +38,11 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Default text colour so plain TextBlocks follow the theme (dark/light). -->
+            <Style TargetType="{x:Type ui:TextBlock}">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
